@@ -15,22 +15,20 @@
     },
     "ios": {
       "bundleIdentifier": "com.arise.campusnavigator",
-      "supportsTablet": false,
-      "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "ARISE would like to read photos for the AR placard scanner.",
-        "NSPhotoLibraryAddUsageDescription": "Allow $(PRODUCT_NAME) to save photos",
-        "NSCameraUsageDescription": "ARISE uses your camera for the AR placard scanner.",
-        "NSMicrophoneUsageDescription": "ARISE's AR camera session may request microphone access, even though audio isn't used."
-      }
+      "supportsTablet": false
     },
     "plugins": [
       "expo-router",
       [
+        "expo-camera",
+        {
+          "cameraPermission": "ARISE uses your camera to scan room placards."
+        }
+      ],
+      [
         "@reactvision/react-viro",
         {
-          "android": {
-            "xRMode": "AR"
-          },
+          "android": { "xRMode": "AR" },
           "ios": {
             "cameraUsagePermission": "ARISE uses your camera for the AR placard scanner.",
             "microphoneUsagePermission": "ARISE's AR camera session may request microphone access, even though audio isn't used.",
@@ -39,12 +37,6 @@
           }
         }
       ]
-    ],
-    "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "0d0f3624-860b-4934-a7de-da04542bd454"
-      }
-    }
+    ]
   }
 }

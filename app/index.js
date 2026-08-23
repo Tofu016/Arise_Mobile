@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, Modal, TextInput, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Pressable, TextInput, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { useAuth } from "../src/context/useAuth";
 import { usePublicNodes } from "../src/hooks/usePublicNodes";
 import { usePlacardDialogs } from "../src/hooks/usePlacardDialogs";
@@ -39,6 +40,7 @@ function pickDefaultEntranceForBuilding(nodes, buildingId) {
 }
 
 export default function MainScreen() {
+  const router = useRouter();
   useCustomBuildingsVersion(); // re-render when an admin adds/removes a building
   const { user, profile, role, signOut } = useAuth();
   const { nodes, error: loadError } = usePublicNodes();
@@ -64,7 +66,6 @@ export default function MainScreen() {
     searchInputRef.current?.blur();
   };
 
-  const [arModalOpen, setArModalOpen] = useState(false);
   const [buildingFilter, setBuildingFilter] = useState("all");
   const [currentId, setCurrentId] = useState(null);
   const [history, setHistory] = useState([]);
@@ -407,7 +408,7 @@ export default function MainScreen() {
           </Pressable>
         )}
 
-        <Pressable style={styles.arBtn} onPress={() => setArModalOpen(true)}>
+        <Pressable style={styles.arBtn} onPress={() => router.push("/placard-scanner")}>
           <Text style={styles.arBtnText}>AR</Text>
         </Pressable>
 
@@ -591,18 +592,6 @@ export default function MainScreen() {
         />
       )}
 
-      {/* ---------- AR stub modal ---------- */}
-      <Modal visible={arModalOpen} transparent animationType="fade" onRequestClose={() => setArModalOpen(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>🚧 In the works!</Text>
-            <Text style={styles.modalBody}>AR navigation is being built and isn't ready yet — check back soon.</Text>
-            <Pressable style={styles.modalButton} onPress={() => setArModalOpen(false)}>
-              <Text style={styles.modalButtonText}>OK</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -861,10 +850,4 @@ const styles = StyleSheet.create({
   buildingOptionText: { color: "#e6e6e6", fontSize: 14 },
   buildingOptionTextActive: { color: "#4a9eff", fontWeight: "700" },
 
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center", padding: 24 },
-  modalCard: { backgroundColor: "#191b22", borderRadius: 10, borderWidth: 1, borderColor: "#2a2d38", padding: 20, width: "100%", maxWidth: 340 },
-  modalTitle: { color: "#e6e6e6", fontSize: 16, fontWeight: "700", marginBottom: 8 },
-  modalBody: { color: "#c7cad1", fontSize: 14, marginBottom: 16 },
-  modalButton: { backgroundColor: "#4a9eff", borderRadius: 8, paddingVertical: 10, alignItems: "center" },
-  modalButtonText: { color: "#0f1115", fontWeight: "700" },
 });
