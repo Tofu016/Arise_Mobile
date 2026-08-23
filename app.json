@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "ARISE",
+    "slug": "arise-mobile",
+    "scheme": "arise",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "backgroundColor": "#0f1115"
+    },
+    "android": {
+      "package": "com.arise.campusnavigator"
+    },
+    "ios": {
+      "bundleIdentifier": "com.arise.campusnavigator",
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "ARISE would like to read photos for the AR placard scanner.",
+        "NSPhotoLibraryAddUsageDescription": "Allow $(PRODUCT_NAME) to save photos",
+        "NSCameraUsageDescription": "ARISE uses your camera for the AR placard scanner.",
+        "NSMicrophoneUsageDescription": "ARISE's AR camera session may request microphone access, even though audio isn't used."
+      }
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "@reactvision/react-viro",
+        {
+          "android": {
+            "xRMode": "AR"
+          },
+          "ios": {
+            "cameraUsagePermission": "ARISE uses your camera for the AR placard scanner.",
+            "microphoneUsagePermission": "ARISE's AR camera session may request microphone access, even though audio isn't used.",
+            "photosPermission": "ARISE would like to read photos for the AR placard scanner.",
+            "savephotosPermission": "ARISE would like to save photos during the AR placard scanner."
+          }
+        }
+      ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "0d0f3624-860b-4934-a7de-da04542bd454"
+      }
+    }
+  }
+}

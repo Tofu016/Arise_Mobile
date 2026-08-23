@@ -1,0 +1,16 @@
+# EAS Build reinstalls dependencies fresh on its own cloud servers from
+# package.json — it never needs the local node_modules uploaded at all.
+# That folder (800+ packages, plus the full ViroReact native SDK) was the
+# actual cause of the 3.0 GB archive exceeding EAS's 2.0 GB upload limit.
+node_modules/
+
+# Native folders, if they exist locally from a previous local build attempt —
+# EAS generates its own from app.json/app config, doesn't need ours.
+android/
+ios/
+
+# Standard local-only artifacts, never needed for a cloud build.
+.expo/
+.git/
+*.log
+.DS_Store
