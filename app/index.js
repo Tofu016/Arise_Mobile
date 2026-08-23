@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useAuth } from "../src/context/useAuth";
 import { usePublicNodes } from "../src/hooks/usePublicNodes";
-import { usePlacardDialogs } from "../src/hooks/usePlacardDialogs";
+import { useSearchableRooms } from "../src/hooks/useSearchableRooms";
 import { useSecurePhotoPixels } from "../src/hooks/useSecurePhotoPixels";
 import { useCustomBuildingsVersion } from "../src/utils/buildingStore";
 import { allBuildings, buildingLabel, floorLabel, defaultHotspotAngle, markerTypeInfo } from "../src/utils/constants";
@@ -153,29 +153,9 @@ export default function MainScreen() {
 
   // ---------- Search ----------
   const [searchQuery, setSearchQuery] = useState("");
-  const { getForRoom } = usePlacardDialogs();
-
   // Rooms with actual detail records (photo/description/department/use) —
-  // built by matching each node's "Rooms served" entries against
-  // placardDialogs, same as web. Only rooms an admin has actually gone
-  // through Room Edit for show up here.
-  const searchableRooms = useMemo(() => {
-    if (!nodes) return [];
-    const out = [];
-    const seen = new Set();
-    for (const n of nodes) {
-      for (const roomName of n.rooms || []) {
-        const key = roomName.trim().toUpperCase();
-        if (seen.has(key)) continue;
-        const placard = getForRoom(roomName);
-        if (!placard) continue;
-        seen.add(key);
-        out.push({ roomName, node: n, placard });
-      }
-    }
-    return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes, getForRoom]);
+  // see useSearchableRooms.js for how this is built.
+  const { searchableRooms } = useSearchableRooms();
 
   const roomResults = useMemo(() => {
     if (!searchQuery.trim()) return [];
@@ -517,6 +497,12 @@ export default function MainScreen() {
                   </Text>
                 )}
                 <View style={styles.accountDivider} />
+                {/* TEMPORARY — testing entry point for the AR portal work in
+                    progress (Stage D). Remove once Stage D4 wires the real
+                    matched-room → AR flow from the placard scanner. */}
+                <Pressable style={styles.signOutBtn} onPress={() => router.push("/ar-portal")}>
+                  <Text style={styles.signOutBtnText}>🧪 Test AR Portal</Text>
+                </Pressable>
                 <Pressable style={styles.signOutBtn} onPress={signOut}>
                   <Text style={styles.signOutBtnText}>Sign out</Text>
                 </Pressable>

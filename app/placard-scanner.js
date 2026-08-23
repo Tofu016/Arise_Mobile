@@ -5,13 +5,20 @@ import { useRouter } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { recognizeText } from "@infinitered/react-native-mlkit-text-recognition";
+import { useSearchableRooms } from "../src/hooks/useSearchableRooms";
+import { matchRoomsFromOcr } from "../src/utils/ocrRoomMatch";
+import { reconstructVerticalText } from "../src/utils/verticalTextSort";
+import { buildingLabel, floorLabel } from "../src/utils/constants";
 
-// A landscape rectangle sized to roughly match a typical door placard's
-// proportions, centered on screen. Computed once here (not hardcoded pixel
-// values) so both the visual overlay AND the crop math below share the
-// exact same source of truth for the reticle's bounds.
-const RETICLE_WIDTH_FRACTION = 0.82;
-const RETICLE_ASPECT_RATIO = 1.6; // width / height
+// Two distinct shapes rather than one compromise — the person picks which
+// one matches what they're looking at, so each style gets a reticle
+// actually fitted to it instead of splitting the difference.
+const RETICLE_CONFIGS = {
+  horizontal: { widthFraction: 0.82, aspectRatio: 1.6 }, // wide, short — a normal single-line placard
+  vertical: { widthFraction: 0.5, aspectRatio: 0.42 }, // narrow, tall — a stack of individual letters
+};
+
+const MAX_SUGGESTIONS = 4;
 
 export default function PlacardScannerScreen() {
   const router = useRouter();
@@ -19,13 +26,20 @@ export default function PlacardScannerScreen() {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef(null);
+  const { searchableRooms } = useSearchableRooms();
 
-  const [phase, setPhase] = useState("capture"); // capture | processing | result | error
+  const [reticleMode, setReticleMode] = useState("horizontal");
+
+  // capture | processing | matched | suggestions | no-match | error
+  const [phase, setPhase] = useState("capture");
   const [recognizedText, setRecognizedText] = useState("");
+  const [suggestions, setSuggestions] = useState([]);
+  const [matchedRoom, setMatchedRoom] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
 
-  const reticleWidth = screenWidth * RETICLE_WIDTH_FRACTION;
-  const reticleHeight = reticleWidth / RETICLE_ASPECT_RATIO;
+  const { widthFraction, aspectRatio } = RETICLE_CONFIGS[reticleMode];
+  const reticleWidth = screenWidth * widthFraction;
+  const reticleHeight = reticleWidth / aspectRatio;
   const reticleLeft = (screenWidth - reticleWidth) / 2;
   const reticleTop = (screenHeight - reticleHeight) / 2;
 
@@ -57,18 +71,58 @@ export default function PlacardScannerScreen() {
       const rendered = await context.renderAsync();
       const cropped = await rendered.saveAsync({ format: SaveFormat.JPEG });
 
-      const { text } = await recognizeText(cropped.uri);
-      setRecognizedText((text || "").trim());
-      setPhase("result");
+      const ocrResult = await recognizeText(cropped.uri);
+      const rawText = (ocrResult.text || "").trim();
+
+      // Some placards print vertically stacked individual letters, which
+      // read as scrambled nonsense in ML Kit's own raw text order — this
+      // reassembles them into correct reading order using each detected
+      // line's actual position. Kept purely additive: both readings get
+      // tried against the room data, and whichever matches better wins, so
+      // ordinary horizontal placards are never put at risk by this.
+      const reconstructedText = reconstructVerticalText(ocrResult, cropped.width, cropped.height);
+
+      const rawMatches = matchRoomsFromOcr(rawText, searchableRooms);
+      const reconstructedMatches =
+        reconstructedText && reconstructedText !== rawText
+          ? matchRoomsFromOcr(reconstructedText, searchableRooms)
+          : [];
+
+      const bestRawScore = rawMatches[0]?.score ?? 0;
+      const bestReconstructedScore = reconstructedMatches[0]?.score ?? 0;
+      const useReconstructed = bestReconstructedScore > bestRawScore;
+
+      const trimmedText = useReconstructed ? reconstructedText : rawText;
+      const matches = useReconstructed ? reconstructedMatches : rawMatches;
+      setRecognizedText(trimmedText);
+
+      const exact = matches.find((m) => m.isExact);
+
+      if (exact) {
+        setMatchedRoom(exact.room);
+        setPhase("matched");
+      } else if (matches.length > 0) {
+        setSuggestions(matches.slice(0, MAX_SUGGESTIONS));
+        setPhase("suggestions");
+      } else {
+        setPhase("no-match");
+      }
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err));
       setPhase("error");
     }
   };
 
+  const handleSelectSuggestion = (room) => {
+    setMatchedRoom(room);
+    setPhase("matched");
+  };
+
   const handleRetry = () => {
     setPhase("capture");
     setRecognizedText("");
+    setSuggestions([]);
+    setMatchedRoom(null);
     setErrorMessage("");
   };
 
@@ -105,6 +159,29 @@ export default function PlacardScannerScreen() {
         <Pressable style={styles.closeBtn} onPress={() => router.back()}>
           <Text style={styles.closeBtnText}>✕</Text>
         </Pressable>
+
+        {phase === "capture" && (
+          <View style={styles.reticleToggle}>
+            <Pressable
+              style={[styles.reticleToggleOption, reticleMode === "horizontal" && styles.reticleToggleOptionActive]}
+              onPress={() => setReticleMode("horizontal")}
+            >
+              <Text
+                style={[styles.reticleToggleText, reticleMode === "horizontal" && styles.reticleToggleTextActive]}
+              >
+                ↔ Horizontal
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.reticleToggleOption, reticleMode === "vertical" && styles.reticleToggleOptionActive]}
+              onPress={() => setReticleMode("vertical")}
+            >
+              <Text style={[styles.reticleToggleText, reticleMode === "vertical" && styles.reticleToggleTextActive]}>
+                ↕ Vertical
+              </Text>
+            </Pressable>
+          </View>
+        )}
       </View>
 
       <View style={[styles.bottomBar, { bottom: insets.bottom + 24 }]}>
@@ -124,12 +201,52 @@ export default function PlacardScannerScreen() {
           </View>
         )}
 
-        {phase === "result" && (
+        {phase === "matched" && matchedRoom && (
           <View style={styles.resultCard}>
-            <Text style={styles.resultLabel}>Recognized text</Text>
-            <Text style={styles.resultText}>
-              {recognizedText || "(no text recognized — try repositioning the placard)"}
+            <Text style={styles.resultLabel}>Room found</Text>
+            <Text style={styles.matchedName}>{matchedRoom.roomName}</Text>
+            {matchedRoom.placard?.use && (
+              <Text style={styles.matchedSub}>{matchedRoom.placard.use}</Text>
+            )}
+            <Text style={styles.matchedSub}>
+              {buildingLabel(matchedRoom.node.building)} · {floorLabel(matchedRoom.node.floor)}
             </Text>
+            <Pressable style={styles.captureBtn} onPress={handleRetry}>
+              <Text style={styles.captureBtnText}>SCAN ANOTHER</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {phase === "suggestions" && (
+          <View style={styles.resultCard}>
+            <Text style={styles.resultLabel}>Did you mean…</Text>
+            <Text style={styles.recognizedHint} numberOfLines={1}>
+              Read: "{recognizedText || "(no text recognized)"}"
+            </Text>
+            {suggestions.map((m) => (
+              <Pressable
+                key={m.room.roomName}
+                style={styles.suggestionRow}
+                onPress={() => handleSelectSuggestion(m.room)}
+              >
+                <Text style={styles.suggestionName}>{m.room.roomName}</Text>
+                <Text style={styles.suggestionSub}>
+                  {buildingLabel(m.room.node.building)} · {floorLabel(m.room.node.floor)}
+                </Text>
+              </Pressable>
+            ))}
+            <Pressable style={styles.captureBtn} onPress={handleRetry}>
+              <Text style={styles.captureBtnText}>SCAN AGAIN</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {phase === "no-match" && (
+          <View style={styles.resultCard}>
+            <Text style={styles.recognizedHint} numberOfLines={2}>
+              Read: "{recognizedText || "(no text recognized)"}"
+            </Text>
+            <Text style={styles.errorText}>No matching room found — try repositioning the placard.</Text>
             <Pressable style={styles.captureBtn} onPress={handleRetry}>
               <Text style={styles.captureBtnText}>SCAN AGAIN</Text>
             </Pressable>
@@ -169,7 +286,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "rgba(74,158,255,0.08)",
   },
-  topBar: { position: "absolute", left: 12, right: 12, flexDirection: "row" },
+  topBar: {
+    position: "absolute",
+    left: 12,
+    right: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   closeBtn: {
     width: 40,
     height: 40,
@@ -179,6 +303,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   closeBtnText: { color: "#e6e6e6", fontSize: 16 },
+  reticleToggle: {
+    flexDirection: "row",
+    backgroundColor: "rgba(15,17,21,0.7)",
+    borderRadius: 999,
+    padding: 3,
+    gap: 2,
+  },
+  reticleToggleOption: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+  },
+  reticleToggleOptionActive: { backgroundColor: "#4a9eff" },
+  reticleToggleText: { color: "#c7cad1", fontSize: 12, fontWeight: "600" },
+  reticleToggleTextActive: { color: "#0f1115" },
   bottomBar: { position: "absolute", left: 20, right: 20, alignItems: "center", gap: 14 },
   instructionText: {
     color: "#e6e6e6",
@@ -214,9 +353,22 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     alignItems: "center",
-    gap: 12,
+    gap: 10,
   },
   resultLabel: { color: "#9aa0ac", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 },
-  resultText: { color: "#e6e6e6", fontSize: 15, textAlign: "center", lineHeight: 21 },
+  recognizedHint: { color: "#6b7280", fontSize: 12, fontStyle: "italic", textAlign: "center" },
+  matchedName: { color: "#e6e6e6", fontSize: 20, fontWeight: "700", textAlign: "center" },
+  matchedSub: { color: "#9aa0ac", fontSize: 13, textAlign: "center" },
+  suggestionRow: {
+    width: "100%",
+    backgroundColor: "#14161c",
+    borderWidth: 1,
+    borderColor: "#2a2d38",
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  suggestionName: { color: "#e6e6e6", fontSize: 14 },
+  suggestionSub: { color: "#9aa0ac", fontSize: 11, marginTop: 2 },
   errorText: { color: "#ff9a9a", fontSize: 13, textAlign: "center" },
 });
