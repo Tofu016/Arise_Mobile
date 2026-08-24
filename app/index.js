@@ -497,11 +497,15 @@ export default function MainScreen() {
                   </Text>
                 )}
                 <View style={styles.accountDivider} />
-                {/* TEMPORARY — testing entry point for the AR portal work in
-                    progress (Stage D). Remove once Stage D4 wires the real
-                    matched-room → AR flow from the placard scanner. */}
-                <Pressable style={styles.signOutBtn} onPress={() => router.push("/ar-portal")}>
-                  <Text style={styles.signOutBtnText}>🧪 Test AR Portal</Text>
+                {/* TEMPORARY DIAGNOSTIC — isolated test of a friend's
+                    "see-through mask" portal technique against our own
+                    known-working AR portal, before deciding whether to
+                    adopt it. Remove once verified either way. */}
+                <Pressable
+                  style={styles.signOutBtn}
+                  onPress={() => router.push("/ar-portal-seethrough-test")}
+                >
+                  <Text style={styles.signOutBtnText}>🧪 See-Through Test</Text>
                 </Pressable>
                 <Pressable style={styles.signOutBtn} onPress={signOut}>
                   <Text style={styles.signOutBtnText}>Sign out</Text>

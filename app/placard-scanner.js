@@ -211,8 +211,26 @@ export default function PlacardScannerScreen() {
             <Text style={styles.matchedSub}>
               {buildingLabel(matchedRoom.node.building)} · {floorLabel(matchedRoom.node.floor)}
             </Text>
-            <Pressable style={styles.captureBtn} onPress={handleRetry}>
-              <Text style={styles.captureBtnText}>SCAN ANOTHER</Text>
+            <Pressable
+              style={styles.captureBtn}
+              onPress={() =>
+                // replace, not push — the scanner's camera needs to be
+                // fully unmounted (releasing the hardware) before the AR
+                // portal's own camera session starts. A plain push() keeps
+                // this screen mounted in the background (for instant "back"
+                // navigation), which left two things fighting over the same
+                // camera hardware — the likely cause of a silent crash with
+                // no error log right as the AR camera session started.
+                router.replace({
+                  pathname: "/ar-portal",
+                  params: { nodeId: matchedRoom.node.id, roomName: matchedRoom.roomName },
+                })
+              }
+            >
+              <Text style={styles.captureBtnText}>VIEW IN AR</Text>
+            </Pressable>
+            <Pressable style={styles.scanAnotherBtn} onPress={handleRetry}>
+              <Text style={styles.scanAnotherBtnText}>SCAN ANOTHER</Text>
             </Pressable>
           </View>
         )}
@@ -335,6 +353,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   captureBtnText: { color: "#0f1115", fontWeight: "700", fontSize: 14, letterSpacing: 0.5 },
+  scanAnotherBtn: {
+    borderWidth: 1,
+    borderColor: "#2a2d38",
+    borderRadius: 999,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+  },
+  scanAnotherBtnText: { color: "#c7cad1", fontSize: 13, fontWeight: "600" },
   processingPill: {
     flexDirection: "row",
     alignItems: "center",
