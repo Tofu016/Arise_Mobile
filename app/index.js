@@ -237,6 +237,64 @@ export default function MainScreen() {
       stepIndex: 0,
       error: "",
       editingField: null,
+      kind: "point",
+    });
+    setSearchQuery("");
+    searchInputRef.current?.blur();
+    setPanelMode("directions");
+  };
+
+  // Emergency "nearest exit" shortcut — same logic as the web admin's
+  // MainPage.jsx: the destination isn't picked by the visitor, it's
+  // whichever node has a marker explicitly labeled "Assembly Point"
+  // (case-insensitive/trimmed, since it's free-typed by whoever creates the
+  // marker) that comes back shortest from wherever they currently are.
+  // Deliberately NOT matching on any other exit-type marker (e.g.
+  // "Emergency Fire Stairs") — those are real waypoints the path may
+  // legitimately pass through, but only a marker specifically labeled
+  // "Assembly Point" counts as the genuine, complete safe destination.
+  const openDirectionsToNearestExit = () => {
+    if (!current || !nodes) return;
+    const assemblyPoints = nodes.filter((n) =>
+      (n.markers || []).some(
+        (m) => m.type === "exit" && (m.label || "").trim().toLowerCase() === "assembly point"
+      )
+    );
+
+    if (assemblyPoints.length === 0) {
+      setDirections({
+        fromQuery: current.name,
+        fromId: current.id,
+        toQuery: "",
+        toId: null,
+        path: null,
+        stepIndex: 0,
+        error: 'No assembly point has been set up yet — ask an admin to add an exit marker labeled "Assembly Point."',
+        editingField: null,
+        kind: "exit",
+      });
+      setSearchQuery("");
+      searchInputRef.current?.blur();
+      setPanelMode("directions");
+      return;
+    }
+
+    let best = null;
+    for (const area of assemblyPoints) {
+      const path = findPath(nodes, current.id, area.id);
+      if (path && (!best || path.length < best.path.length)) best = { area, path };
+    }
+
+    setDirections({
+      fromQuery: current.name,
+      fromId: current.id,
+      toQuery: best?.area.name || "",
+      toId: best?.area.id || null,
+      path: best?.path || null,
+      stepIndex: 0,
+      error: best ? "" : "No walkable route to an assembly point was found from here.",
+      editingField: null,
+      kind: "exit",
     });
     setSearchQuery("");
     searchInputRef.current?.blur();
@@ -389,7 +447,7 @@ export default function MainScreen() {
         )}
 
         <Pressable style={styles.arBtn} onPress={() => router.push("/placard-scanner")}>
-          <Text style={styles.arBtnText}>AR</Text>
+          <Text style={styles.arBtnText}>Placard</Text>
         </Pressable>
 
         <View style={styles.searchBar}>
@@ -519,7 +577,31 @@ export default function MainScreen() {
       {/* ---------- Persistent bottom Building selector — hidden while
           a bottom sheet (room/directions) is occupying that space. ---------- */}
       {panelMode !== "room" && panelMode !== "directions" && (
-        <View style={[styles.bottomBarWrap, { bottom: insets.bottom + 16 }]}>
+        <>
+          {/* Stacked above the building selector, not beside it — that
+              selector spans the full bottom-bar width, so sharing its row
+              would mean overlapping it. 44 is the building trigger's own
+              height, +12 for a gap between the two. */}
+          <Pressable
+            style={[styles.emergencyBtnFloating, { bottom: insets.bottom + 16 + 44 + 12 }]}
+            onPress={openDirectionsToNearestExit}
+          >
+            <Text style={styles.emergencyBtnText}>🚨</Text>
+          </Pressable>
+
+          {/* Mirrors the emergency button — same stacking reasoning, same
+              vertical offset, just the opposite side. Passes the CURRENT
+              node explicitly, since this screen isn't tied to the OCR/
+              placard flow at all — it just shows whatever node you're
+              looking at right now in AR. */}
+          <Pressable
+            style={[styles.arViewerBtnFloating, { bottom: insets.bottom + 16 + 44 + 12 }]}
+            onPress={() => currentId && router.push({ pathname: "/ar-viewer", params: { nodeId: currentId } })}
+          >
+            <Text style={styles.arViewerBtnText}>AR</Text>
+          </Pressable>
+
+          <View style={[styles.bottomBarWrap, { bottom: insets.bottom + 16 }]}>
           {panelMode === "building" && (
             <View style={styles.buildingMenu}>
               {buildingOptions.map((b) => (
@@ -548,7 +630,8 @@ export default function MainScreen() {
             <Text style={styles.buildingTriggerText}>{currentBuildingLabel}</Text>
             <Text style={styles.buildingCaret}>{panelMode === "building" ? "▴" : "▾"}</Text>
           </Pressable>
-        </View>
+          </View>
+        </>
       )}
 
       {/* ---------- Room detail sheet (draggable) ---------- */}
@@ -662,6 +745,44 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
   },
   arBtnText: { color: "#4a9eff", fontWeight: "700", fontSize: 13, letterSpacing: 0.5 },
+
+  emergencyBtnFloating: {
+    position: "absolute",
+    left: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "#ff4a4a",
+    backgroundColor: "#2a1418",
+    alignItems: "center",
+    justifyContent: "center",
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+  },
+  emergencyBtnText: { fontSize: 18 },
+
+  arViewerBtnFloating: {
+    position: "absolute",
+    right: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "#4a9eff",
+    backgroundColor: "#191b22",
+    alignItems: "center",
+    justifyContent: "center",
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+  },
+  arViewerBtnText: { color: "#4a9eff", fontWeight: "700", fontSize: 13, letterSpacing: 0.5 },
 
   backBtn: {
     width: 40,

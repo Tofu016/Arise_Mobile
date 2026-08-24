@@ -50,7 +50,7 @@ const MASK_SCALE = [1.197, 1.93, 1];
 
 // Confirmed correct on a real device — the missing piece was Z, not X;
 // the gap was toward/away from the viewer, not left/right.
-const MASK_POSITION_OFFSET = [0, -0.037, 0.55];
+const MASK_POSITION_OFFSET = [0, 0, 0];
 
 const MASK_ROTATION = [0, 0, 0];
 
