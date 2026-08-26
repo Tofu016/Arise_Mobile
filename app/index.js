@@ -13,6 +13,8 @@ import { findPath } from "../src/utils/pathfinding";
 import MobileRoomSheet from "../src/components/MobileRoomSheet";
 import MobileDirectionsSheet from "../src/components/MobileDirectionsSheet";
 import PanoramaViewer from "../src/components/PanoramaViewer";
+import Button from "../src/components/Button";
+import { colors, typography, fontFamily, radii, spacing, shadows } from "../src/theme";
 
 // Same logic as the web app's pickDefaultNode: prefer an entrance, in
 // building order (GD1, GD2, GD3, then any admin-added buildings), lowest
@@ -458,7 +460,7 @@ export default function MainScreen() {
             onChangeText={setSearchQuery}
             onFocus={() => setPanelMode("search")}
             placeholder="Search a room..."
-            placeholderTextColor="#6b7280"
+            placeholderTextColor={colors.textSubtle}
           />
         </View>
 
@@ -559,15 +561,20 @@ export default function MainScreen() {
                     "see-through mask" portal technique against our own
                     known-working AR portal, before deciding whether to
                     adopt it. Remove once verified either way. */}
-                <Pressable
-                  style={styles.signOutBtn}
+                <Button
+                  label="🧪 See-Through Test"
+                  variant="outline"
+                  size="sm"
                   onPress={() => router.push("/ar-portal-seethrough-test")}
-                >
-                  <Text style={styles.signOutBtnText}>🧪 See-Through Test</Text>
-                </Pressable>
-                <Pressable style={styles.signOutBtn} onPress={signOut}>
-                  <Text style={styles.signOutBtnText}>Sign out</Text>
-                </Pressable>
+                  style={styles.accountBtnFull}
+                />
+                <Button
+                  label="Sign out"
+                  variant="outline"
+                  size="sm"
+                  onPress={signOut}
+                  style={styles.accountBtnFull}
+                />
               </View>
             )}
           </View>
@@ -669,19 +676,28 @@ export default function MainScreen() {
   );
 }
 
+// Shared recipe for the floating chrome buttons in the top bar (back /
+// placard / account sit on the map over the panorama).
+const FLOATING_BTN = {
+  borderWidth: 1,
+  borderColor: colors.border,
+  backgroundColor: colors.surface,
+  alignItems: "center",
+  justifyContent: "center",
+  ...shadows.floating,
+};
+
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#0f1115" },
+  screen: { flex: 1, backgroundColor: colors.background },
 
   panoramaPlaceholder: {
     flex: 1,
-    backgroundColor: "#14161c",
+    backgroundColor: colors.surfaceSunken,
     alignItems: "center",
     justifyContent: "center",
   },
-  panoramaPlaceholderText: { color: "#6b7280", fontSize: 13, textAlign: "center", lineHeight: 20 },
-  panoramaCurrentName: { color: "#e6e6e6", fontSize: 18, fontWeight: "700", textAlign: "center", marginBottom: 4 },
-  panoramaCurrentSub: { color: "#9aa0ac", fontSize: 13, textAlign: "center", marginBottom: 16 },
-  panoramaErrorText: { color: "#ff9a9a", fontSize: 13, textAlign: "center", paddingHorizontal: 24 },
+  panoramaPlaceholderText: { ...typography.caption, textAlign: "center", lineHeight: 20 },
+  panoramaErrorText: { ...typography.bodySmall, color: colors.danger, textAlign: "center", paddingHorizontal: spacing.xxl },
   panoramaViewerWrap: { flex: 1, width: "100%" },
   panoramaDebugOverlay: {
     position: "absolute",
@@ -697,18 +713,14 @@ const styles = StyleSheet.create({
     right: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    backgroundColor: "#191b22",
+    gap: spacing.md - 2,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: "#2a2d38",
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    elevation: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    paddingVertical: spacing.md - 2,
+    paddingHorizontal: spacing.md,
+    ...shadows.floating,
   },
   markerBannerDot: {
     width: 30,
@@ -718,8 +730,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   markerBannerIcon: { fontSize: 14 },
-  markerBannerLabel: { flex: 1, color: "#e6e6e6", fontSize: 14 },
-  markerBannerClose: { color: "#9aa0ac", fontSize: 16, paddingHorizontal: 4 },
+  markerBannerLabel: { flex: 1, ...typography.bodySmall, color: colors.textPrimary },
+  markerBannerClose: { color: colors.textMuted, fontSize: 16, paddingHorizontal: spacing.xs },
 
   topBar: {
     position: "absolute",
@@ -727,24 +739,10 @@ const styles = StyleSheet.create({
     right: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: spacing.sm,
   },
-  arBtn: {
-    height: 40,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#2a2d38",
-    backgroundColor: "#191b22",
-    alignItems: "center",
-    justifyContent: "center",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
-  },
-  arBtnText: { color: "#4a9eff", fontWeight: "700", fontSize: 13, letterSpacing: 0.5 },
+  arBtn: { ...FLOATING_BTN, height: 40, paddingHorizontal: spacing.md + 2, borderRadius: radii.lg },
+  arBtnText: { ...typography.button, fontSize: 12, color: colors.primary },
 
   emergencyBtnFloating: {
     position: "absolute",
@@ -753,15 +751,11 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: "#ff4a4a",
-    backgroundColor: "#2a1418",
+    borderColor: colors.emergency,
+    backgroundColor: colors.emergencyTint,
     alignItems: "center",
     justifyContent: "center",
-    elevation: 6,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
+    ...shadows.floating,
   },
   emergencyBtnText: { fontSize: 18 },
 
@@ -772,67 +766,40 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: "#4a9eff",
-    backgroundColor: "#191b22",
+    borderColor: colors.primary,
+    backgroundColor: colors.surface,
     alignItems: "center",
     justifyContent: "center",
-    elevation: 6,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
+    ...shadows.floating,
   },
-  arViewerBtnText: { color: "#4a9eff", fontWeight: "700", fontSize: 13, letterSpacing: 0.5 },
+  arViewerBtnText: { ...typography.button, fontSize: 13, color: colors.primary },
 
-  backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#2a2d38",
-    backgroundColor: "#191b22",
-    alignItems: "center",
-    justifyContent: "center",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
-  },
-  backBtnText: { color: "#e6e6e6", fontSize: 16 },
+  backBtn: { ...FLOATING_BTN, width: 40, height: 40, borderRadius: radii.lg },
+  backBtnText: { color: colors.textPrimary, fontSize: 16 },
 
   searchBar: {
     flex: 1,
     height: 40,
-    borderRadius: 999,
+    borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: "#2a2d38",
-    backgroundColor: "#191b22",
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     justifyContent: "center",
-    paddingHorizontal: 14,
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
+    paddingHorizontal: spacing.md + 2,
+    ...shadows.floating,
   },
-  searchPlaceholderText: { color: "#6b7280", fontSize: 14 },
-  searchInput: { color: "#e6e6e6", fontSize: 14, padding: 0 },
+  searchInput: { ...typography.bodySmall, color: colors.textPrimary, fontSize: 14, padding: 0 },
 
   accountBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#4a9eff",
+    backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
+    ...shadows.floating,
   },
-  accountBtnText: { color: "#0f1115", fontWeight: "700", fontSize: 13 },
+  accountBtnText: { ...typography.button, fontSize: 13, color: colors.textOnPrimary },
 
   topPanelBackdrop: {
     position: "absolute",
@@ -840,103 +807,74 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.35)",
+    backgroundColor: colors.scrim,
   },
   topPanel: {
     position: "absolute",
     left: 12,
     right: 12,
-    backgroundColor: "#191b22",
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: "#2a2d38",
-    borderRadius: 12,
-    padding: 16,
-    elevation: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.5,
-    shadowRadius: 16,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    padding: spacing.lg,
+    ...shadows.floating,
   },
-  panelPlaceholderText: { color: "#9aa0ac", fontSize: 13, textAlign: "center", paddingVertical: 8 },
+  panelPlaceholderText: { ...typography.bodySmall, color: colors.textMuted, textAlign: "center", paddingVertical: spacing.sm },
 
   searchResultsScroll: { maxHeight: 360 },
-  resultsLabel: {
-    color: "#6b7280",
-    fontSize: 11,
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
-    marginTop: 10,
-    marginBottom: 4,
-  },
-  resultRowOuter: { flexDirection: "row", alignItems: "center", gap: 6 },
-  resultRowMain: { flex: 1, paddingVertical: 10, paddingHorizontal: 4, borderRadius: 8 },
+  resultsLabel: { ...typography.eyebrow, marginTop: spacing.md - 2, marginBottom: spacing.xs },
+  resultRowOuter: { flexDirection: "row", alignItems: "center", gap: spacing.xs + 2 },
+  resultRowMain: { flex: 1, paddingVertical: spacing.md - 2, paddingHorizontal: spacing.xs, borderRadius: radii.md },
   resultDirectionsBtn: {
     width: 34,
     height: 34,
-    borderRadius: 8,
+    borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: "#2a2d38",
-    backgroundColor: "#262a35",
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceSunken,
     alignItems: "center",
     justifyContent: "center",
   },
-  resultDirectionsBtnText: { color: "#4a9eff", fontSize: 14 },
-  resultName: { color: "#e6e6e6", fontSize: 14, marginBottom: 2 },
-  resultSub: { color: "#9aa0ac", fontSize: 12 },
+  resultDirectionsBtnText: { color: colors.primary, fontSize: 14 },
+  resultName: { ...typography.bodySmall, color: colors.textPrimary, fontSize: 14, marginBottom: 2 },
+  resultSub: { ...typography.caption },
 
-  accountPanelContent: { alignItems: "center", gap: 10, paddingVertical: 4 },
+  accountPanelContent: { alignItems: "center", gap: spacing.md - 2, paddingVertical: spacing.xs },
   accountAvatarLarge: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#4a9eff",
+    backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
   },
-  accountAvatarLargeText: { color: "#0f1115", fontWeight: "700", fontSize: 18 },
-  accountNameText: { color: "#e6e6e6", fontSize: 15, maxWidth: "100%" },
-  adminHint: {
-    color: "#9aa0ac",
-    fontSize: 11,
-    textAlign: "center",
-    paddingHorizontal: 8,
-    lineHeight: 15,
-  },
+  accountAvatarLargeText: { fontFamily: fontFamily.display, fontSize: 18, color: colors.textOnPrimary },
+  accountNameText: { ...typography.bodySemiBold, maxWidth: "100%" },
+  adminHint: { ...typography.caption, textAlign: "center", paddingHorizontal: spacing.sm, lineHeight: 15 },
   accountDivider: {
     width: "100%",
     height: 1,
-    backgroundColor: "#2a2d38",
-    marginTop: 4,
+    backgroundColor: colors.border,
+    marginTop: spacing.xs,
   },
-  signOutBtn: {
-    width: "100%",
-    borderWidth: 1,
-    borderColor: "#2a2d38",
-    borderRadius: 8,
-    paddingVertical: 10,
-    alignItems: "center",
-  },
-  signOutBtnText: { color: "#e6e6e6", fontSize: 14 },
+  accountBtnFull: { width: "100%" },
 
   bottomBarWrap: { position: "absolute", left: 12, right: 12 },
   buildingTrigger: {
     height: 44,
-    borderRadius: 12,
+    borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: "#2a2d38",
-    backgroundColor: "#191b22",
-    paddingHorizontal: 14,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md + 2,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
+    ...shadows.floating,
   },
-  buildingTriggerText: { color: "#e6e6e6", fontSize: 14 },
-  buildingCaret: { color: "#9aa0ac", fontSize: 12 },
+  buildingTriggerText: { ...typography.bodySmall, color: colors.textPrimary, fontSize: 14 },
+  buildingCaret: { color: colors.textMuted, fontSize: 12 },
   // Opens UPWARD unconditionally, same reasoning as the web mobile version:
   // this trigger sits at the bottom edge of the screen, so a menu that
   // opened downward would run off-screen.
@@ -945,20 +883,15 @@ const styles = StyleSheet.create({
     bottom: "100%",
     left: 0,
     right: 0,
-    marginBottom: 8,
-    backgroundColor: "#191b22",
+    marginBottom: spacing.sm,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: "#2a2d38",
-    borderRadius: 12,
-    padding: 6,
-    elevation: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -6 },
-    shadowOpacity: 0.5,
-    shadowRadius: 16,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    padding: spacing.xs + 2,
+    ...shadows.floating,
   },
-  buildingOption: { paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8 },
-  buildingOptionText: { color: "#e6e6e6", fontSize: 14 },
-  buildingOptionTextActive: { color: "#4a9eff", fontWeight: "700" },
-
+  buildingOption: { paddingVertical: spacing.md - 2, paddingHorizontal: spacing.md, borderRadius: radii.md },
+  buildingOptionText: { ...typography.bodySmall, color: colors.textPrimary, fontSize: 14 },
+  buildingOptionTextActive: { color: colors.primary, fontFamily: fontFamily.displaySemiBold },
 });

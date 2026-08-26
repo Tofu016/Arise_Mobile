@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, useWindowDimensions } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated, { useSharedValue, useAnimatedStyle, withSpring } from "react-native-reanimated";
 import {
   ViroARSceneNavigator,
   ViroARScene,
@@ -18,6 +16,9 @@ import {
 } from "@reactvision/react-viro";
 import { usePublicNodes } from "../src/hooks/usePublicNodes";
 import { useSecurePhotoFileUri } from "../src/hooks/useSecurePhotoFileUri";
+import { colors, typography, radii, spacing } from "../src/theme";
+import BottomSheet from "../src/components/BottomSheet";
+import Button from "../src/components/Button";
 
 // Same physical door model, same confirmed-correct tuning as ar-portal.js.
 const PLACEMENT_DISTANCE_METERS = 2.7432;
@@ -27,13 +28,6 @@ const DOOR_ROTATION = [0, -90, 0];
 const MASK_SCALE = [1.197, 1.93, 1];
 const MASK_POSITION_OFFSET = [0, 0, 0];
 const MASK_ROTATION = [0, 0, 0];
-
-// Peek/half/full drag sheet — same values/spring config as MobileRoomSheet.
-const SNAP_PEEK = 0.24;
-const SNAP_HALF = 0.5;
-const SNAP_FULL = 0.88;
-const SNAP_POINTS = [SNAP_PEEK, SNAP_HALF, SNAP_FULL];
-const SPRING_CONFIG = { damping: 20, stiffness: 200 };
 
 ViroMaterials.createMaterials({
   doorFrameMaterial: { diffuseColor: "#8a7660" },
@@ -174,7 +168,6 @@ export default function ArViewerScreen() {
   const insets = useSafeAreaInsets();
   const { nodeId } = useLocalSearchParams();
   const { nodes } = usePublicNodes();
-  const { height: windowHeight } = useWindowDimensions();
 
   const navigateRef = useRef(null);
   const [displayNodeId, setDisplayNodeId] = useState(nodeId);
@@ -188,38 +181,11 @@ export default function ArViewerScreen() {
     navigateRef.current?.(targetNodeId);
   };
 
-  const heightFraction = useSharedValue(SNAP_PEEK);
-  const startFraction = useSharedValue(SNAP_PEEK);
-
-  const pan = Gesture.Pan()
-    .onStart(() => {
-      startFraction.value = heightFraction.value;
-    })
-    .onUpdate((e) => {
-      const delta = -e.translationY / windowHeight;
-      const next = Math.min(SNAP_FULL, Math.max(0.08, startFraction.value + delta));
-      heightFraction.value = next;
-    })
-    .onEnd(() => {
-      const current = heightFraction.value;
-      const nearest = SNAP_POINTS.reduce(
-        (best, p) => (Math.abs(current - p) < Math.abs(current - best) ? p : best),
-        SNAP_POINTS[0]
-      );
-      heightFraction.value = withSpring(nearest, SPRING_CONFIG);
-    });
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    height: `${heightFraction.value * 100}%`,
-  }));
-
   if (!nodeId) {
     return (
       <View style={styles.center}>
         <Text style={styles.errorText}>No starting point selected for AR view.</Text>
-        <Pressable style={styles.closeBtnLarge} onPress={() => router.back()}>
-          <Text style={styles.closeBtnLargeText}>Go back</Text>
-        </Pressable>
+        <Button label="Go back" onPress={() => router.back()} size="sm" />
       </View>
     );
   }
@@ -247,13 +213,7 @@ export default function ArViewerScreen() {
         </Pressable>
       </View>
 
-      <Animated.View style={[styles.sheet, animatedStyle]}>
-        <GestureDetector gesture={pan}>
-          <View style={styles.handleArea}>
-            <View style={styles.handle} />
-          </View>
-        </GestureDetector>
-
+      <BottomSheet>
         <ScrollView style={styles.content} contentContainerStyle={styles.contentInner}>
           <Text style={styles.nodeTitle} numberOfLines={1}>
             {displayNode?.name || "…"}
@@ -268,76 +228,51 @@ export default function ArViewerScreen() {
             </Pressable>
           ))}
         </ScrollView>
-      </Animated.View>
+      </BottomSheet>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  // Stays black — behind the live AR camera feed.
   flex: { flex: 1, backgroundColor: "#000" },
   center: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 16,
-    padding: 24,
-    backgroundColor: "#0f1115",
+    gap: spacing.lg,
+    padding: spacing.xxl,
+    backgroundColor: colors.background,
   },
-  errorText: { color: "#c7cad1", fontSize: 14, textAlign: "center" },
-  closeBtnLarge: { backgroundColor: "#4a9eff", borderRadius: 8, paddingVertical: 12, paddingHorizontal: 20 },
-  closeBtnLargeText: { color: "#0f1115", fontWeight: "700", fontSize: 14 },
+  errorText: { ...typography.body, textAlign: "center" },
   topBar: { position: "absolute", left: 12 },
   closeBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "rgba(15,17,21,0.7)",
+    backgroundColor: colors.overlaySurface,
     alignItems: "center",
     justifyContent: "center",
   },
-  closeBtnText: { color: "#e6e6e6", fontSize: 16 },
+  closeBtnText: { color: colors.textPrimary, fontSize: 16 },
 
-  sheet: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "#191b22",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    overflow: "hidden",
-    elevation: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-  },
-  handleArea: { paddingVertical: 10, alignItems: "center" },
-  handle: { width: 40, height: 4, borderRadius: 999, backgroundColor: "#2a2d38" },
   content: { flex: 1 },
-  contentInner: { paddingHorizontal: 16, paddingBottom: 24 },
-  nodeTitle: { color: "#e6e6e6", fontSize: 18, fontWeight: "700", marginBottom: 4 },
-  sectionLabel: {
-    color: "#6b7280",
-    fontSize: 11,
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
-    marginTop: 14,
-    marginBottom: 6,
-  },
-  emptyText: { color: "#6b7280", fontSize: 13 },
+  contentInner: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl },
+  nodeTitle: { ...typography.h3, marginBottom: spacing.xs },
+  sectionLabel: { ...typography.eyebrow, marginTop: spacing.md + 2, marginBottom: spacing.sm - 2 },
+  emptyText: { ...typography.bodySmall, color: colors.textMuted },
   neighborRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#14161c",
+    backgroundColor: colors.surfaceSunken,
     borderWidth: 1,
-    borderColor: "#2a2d38",
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginBottom: 8,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md + 2,
+    marginBottom: spacing.sm,
   },
-  neighborName: { color: "#e6e6e6", fontSize: 14 },
-  neighborArrow: { color: "#4a9eff", fontSize: 16, fontWeight: "700" },
+  neighborName: { ...typography.bodySmall, color: colors.textPrimary, fontSize: 14 },
+  neighborArrow: { color: colors.primary, fontSize: 16, fontFamily: typography.h3.fontFamily },
 });

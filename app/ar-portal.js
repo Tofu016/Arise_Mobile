@@ -16,6 +16,8 @@ import {
 } from "@reactvision/react-viro";
 import { usePlacardDialogs } from "../src/hooks/usePlacardDialogs";
 import { useSecurePhotoFileUri } from "../src/hooks/useSecurePhotoFileUri";
+import { colors, typography, radii, spacing, shadows } from "../src/theme";
+import Button from "../src/components/Button";
 
 // ViroReact works in meters, not feet — 9 feet is roughly 2.7432 meters.
 // Increased from the original 5ft (1.524m) — confirmed working at this
@@ -241,9 +243,7 @@ export default function ArPortalScreen() {
     return (
       <View style={styles.center}>
         <Text style={styles.errorText}>No room selected for AR preview.</Text>
-        <Pressable style={styles.closeBtnLarge} onPress={() => router.back()}>
-          <Text style={styles.closeBtnLargeText}>Go back</Text>
-        </Pressable>
+        <Button label="Go back" onPress={() => router.back()} size="sm" />
       </View>
     );
   }
@@ -265,7 +265,7 @@ export default function ArPortalScreen() {
 
       {!photoUri && !photoError && !placardHasNoPhoto && (
         <View style={styles.loadingPill}>
-          <ActivityIndicator color="#4a9eff" />
+          <ActivityIndicator color={colors.primary} />
           <Text style={styles.loadingText}>Preparing AR preview…</Text>
         </View>
       )}
@@ -286,44 +286,45 @@ export default function ArPortalScreen() {
 }
 
 const styles = StyleSheet.create({
+  // Stays black — behind the live AR camera feed.
   flex: { flex: 1, backgroundColor: "#000" },
   center: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 16,
-    padding: 24,
-    backgroundColor: "#0f1115",
+    gap: spacing.lg,
+    padding: spacing.xxl,
+    backgroundColor: colors.background,
   },
-  errorText: { color: "#c7cad1", fontSize: 14, textAlign: "center" },
-  errorTextSmall: { color: "#ff9a9a", fontSize: 13, textAlign: "center" },
-  closeBtnLarge: { backgroundColor: "#4a9eff", borderRadius: 8, paddingVertical: 12, paddingHorizontal: 20 },
-  closeBtnLargeText: { color: "#0f1115", fontWeight: "700", fontSize: 14 },
+  errorText: { ...typography.body, textAlign: "center" },
+  errorTextSmall: { ...typography.bodySmall, color: colors.danger, textAlign: "center" },
   topBar: {
     position: "absolute",
     left: 12,
     right: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: spacing.md - 2,
   },
   closeBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "rgba(15,17,21,0.7)",
+    backgroundColor: colors.overlaySurface,
     alignItems: "center",
     justifyContent: "center",
+    ...shadows.floating,
   },
-  closeBtnText: { color: "#e6e6e6", fontSize: 16 },
+  closeBtnText: { color: colors.textPrimary, fontSize: 16 },
   roomNamePill: {
     flex: 1,
-    backgroundColor: "rgba(15,17,21,0.7)",
-    borderRadius: 999,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+    backgroundColor: colors.overlaySurface,
+    borderRadius: radii.pill,
+    paddingVertical: spacing.md - 2,
+    paddingHorizontal: spacing.lg,
+    ...shadows.floating,
   },
-  roomNameText: { color: "#e6e6e6", fontSize: 14, fontWeight: "600" },
+  roomNameText: { ...typography.bodySmall, color: colors.textPrimary, fontSize: 14 },
   loadingPill: {
     position: "absolute",
     bottom: 40,
@@ -332,11 +333,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 10,
-    backgroundColor: "#191b22",
-    borderRadius: 999,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+    gap: spacing.md - 2,
+    backgroundColor: colors.overlaySurface,
+    borderRadius: radii.pill,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    ...shadows.floating,
   },
-  loadingText: { color: "#e6e6e6", fontSize: 13 },
+  loadingText: { ...typography.bodySmall, color: colors.textPrimary },
 });

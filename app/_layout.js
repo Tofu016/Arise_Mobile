@@ -5,6 +5,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider } from "../src/context/AuthContext";
 import { useAuth } from "../src/context/useAuth";
+import { colors } from "../src/theme";
 
 const PUBLIC_ROUTES = ["login", "register", "forgot-password", "forgot-email"];
 
@@ -53,9 +54,9 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AuthProvider>
-          <StatusBar style="light" />
+          <StatusBar style="dark" />
           <AuthGate>
-            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0f1115" } }} />
+            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />
           </AuthGate>
         </AuthProvider>
       </SafeAreaProvider>

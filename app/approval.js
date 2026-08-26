@@ -1,5 +1,8 @@
-import { View, Text, StyleSheet, Pressable } from "react-native";
+import { View, Text, StyleSheet } from "react-native";
 import { useAuth } from "../src/context/useAuth";
+import { typography, spacing } from "../src/theme";
+import ScreenContainer from "../src/components/ScreenContainer";
+import Button from "../src/components/Button";
 
 // Matches RequireAuth.jsx's "Awaiting approval" state on web, word for word
 // — including showing the person's actual email so it's clear which account
@@ -11,27 +14,26 @@ export default function ApprovalScreen() {
   const { user, signOut } = useAuth();
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Awaiting approval</Text>
-      <Text style={styles.body}>
-        Your account (<Text style={styles.bold}>{user?.email}</Text>) has been created but hasn't
-        been approved by an admin yet.
-      </Text>
-      <Text style={styles.hint}>Check back soon, or contact an administrator.</Text>
+    <ScreenContainer scroll={false}>
+      <View style={styles.inner}>
+        <Text style={styles.title}>Awaiting approval</Text>
+        <Text style={styles.body}>
+          Your account (<Text style={styles.bold}>{user?.email}</Text>) has been created but hasn't
+          been approved by an admin yet.
+        </Text>
+        <Text style={styles.hint}>Check back soon, or contact an administrator.</Text>
 
-      <Pressable style={styles.button} onPress={signOut}>
-        <Text style={styles.buttonText}>Sign out</Text>
-      </Pressable>
-    </View>
+        <Button label="Sign out" onPress={signOut} variant="outline" size="sm" style={styles.button} />
+      </View>
+    </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0f1115", alignItems: "center", justifyContent: "center", padding: 24 },
-  title: { color: "#e6e6e6", fontSize: 20, fontWeight: "700", marginBottom: 14, textAlign: "center" },
-  body: { color: "#c7cad1", fontSize: 14, textAlign: "center", lineHeight: 20, marginBottom: 8, maxWidth: 300 },
-  bold: { fontWeight: "700", color: "#e6e6e6" },
-  hint: { color: "#9aa0ac", fontSize: 12, textAlign: "center", marginBottom: 24 },
-  button: { borderWidth: 1, borderColor: "#2a2d38", borderRadius: 8, paddingVertical: 10, paddingHorizontal: 20 },
-  buttonText: { color: "#e6e6e6", fontSize: 14 },
+  inner: { alignItems: "center" },
+  title: { ...typography.h2, marginBottom: spacing.md + 2, textAlign: "center" },
+  body: { ...typography.body, textAlign: "center", marginBottom: spacing.sm, maxWidth: 300 },
+  bold: { ...typography.bodySemiBold },
+  hint: { ...typography.caption, textAlign: "center", marginBottom: spacing.xxl },
+  button: { minWidth: 160 },
 });

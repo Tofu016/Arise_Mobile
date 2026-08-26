@@ -3,6 +3,7 @@ import { View, StyleSheet } from "react-native";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { markerTypeInfo } from "../utils/constants";
+import { colors } from "../theme";
 
 const MARKER_RADIUS = 480; // just inside the 500-radius panorama sphere, so markers/hotspots sit in front of the image
 
@@ -80,7 +81,7 @@ function Hotspot({ hotspot, meshMapRef }) {
       }}
     >
       <sphereGeometry args={[14, 16, 16]} />
-      <meshBasicMaterial color="#4a9eff" transparent opacity={0.85} />
+      <meshBasicMaterial color={colors.primary} transparent opacity={0.85} />
     </mesh>
   );
 }
@@ -239,7 +240,7 @@ export default function PanoramaViewer({ pixels, hotspots = [], markers = [], on
         ) : (
           <mesh scale={[-1, 1, 1]}>
             <sphereGeometry args={[500, 32, 32]} />
-            <meshBasicMaterial color="#14161c" />
+            <meshBasicMaterial color={colors.gray300} />
           </mesh>
         )}
         {hotspots.map((h) => (
@@ -254,5 +255,5 @@ export default function PanoramaViewer({ pixels, hotspots = [], markers = [], on
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0f1115" },
+  container: { flex: 1, backgroundColor: colors.surfaceSunken },
 });

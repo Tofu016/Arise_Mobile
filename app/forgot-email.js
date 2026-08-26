@@ -1,5 +1,7 @@
-import { View, Text, StyleSheet, ScrollView } from "react-native";
+import { View, Text, StyleSheet } from "react-native";
 import { Link } from "expo-router";
+import { colors, typography, radii, spacing } from "../src/theme";
+import ScreenContainer from "../src/components/ScreenContainer";
 
 // Deliberately not a self-service lookup — same reasoning as web's version:
 // letting someone submit a name/detail and get back "here's the registered
@@ -9,7 +11,7 @@ import { Link } from "expo-router";
 // name in the Users panel is the safe equivalent.
 export default function ForgotEmailScreen() {
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScreenContainer>
       <Text style={styles.title}>Forgot your email?</Text>
 
       <Text style={styles.paragraph}>
@@ -36,22 +38,23 @@ export default function ForgotEmailScreen() {
         <Text style={styles.linkSep}> · </Text>
         <Link href="/forgot-password" style={styles.link}>Forgot password?</Link>
       </View>
-    </ScrollView>
+    </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flexGrow: 1, justifyContent: "center", backgroundColor: "#0f1115", padding: 24 },
-  title: { color: "#e6e6e6", fontSize: 22, fontWeight: "700", marginBottom: 16, textAlign: "center" },
-  paragraph: { color: "#c7cad1", fontSize: 14, lineHeight: 21, marginBottom: 14 },
-  bold: { fontWeight: "700", color: "#e6e6e6" },
+  title: { ...typography.h2, marginBottom: spacing.lg, textAlign: "center" },
+  paragraph: { ...typography.body, marginBottom: spacing.md + 2 },
+  bold: { ...typography.bodySemiBold },
   code: {
-    color: "#e6e6e6",
-    backgroundColor: "#191b22",
+    fontFamily: typography.caption.fontFamily,
+    color: colors.textPrimary,
+    backgroundColor: colors.surfaceSunken,
+    borderRadius: radii.sm,
   },
-  list: { marginBottom: 14, gap: 8 },
-  listItem: { color: "#c7cad1", fontSize: 14, lineHeight: 21 },
-  linksRow: { flexDirection: "row", justifyContent: "center", marginTop: 12 },
-  link: { color: "#4a9eff", fontSize: 13 },
-  linkSep: { color: "#6b7280", fontSize: 13 },
+  list: { marginBottom: spacing.md + 2, gap: spacing.sm },
+  listItem: { ...typography.body, marginBottom: 0 },
+  linksRow: { flexDirection: "row", justifyContent: "center", marginTop: spacing.md },
+  link: { ...typography.bodySmall, color: colors.textLink },
+  linkSep: { ...typography.bodySmall, color: colors.textSubtle },
 });
