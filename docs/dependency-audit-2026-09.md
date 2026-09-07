@@ -71,6 +71,22 @@
 - `react-native@0.86.3` is inside `@reactvision/react-viro`'s peer range
   (`>=0.83.0 <0.87.0`); `expo@57` is inside its range (`>=55.0.0 <58.0.0`).
   **SDK 57 was the right target — no need to drop to SDK 56.**
+- **`npx expo prebuild --clean` + `./gradlew :app:assembleDebug` → BUILD
+  SUCCESSFUL** (~10 min). This compiled ViroReact's native code (CMake, all
+  ABIs) and ran RN 0.86 New Architecture codegen — the two things most at risk
+  from the RN bump — and produced a working `app-debug.apk`. iOS native build
+  (CocoaPods) still needs to be done on macOS.
+
+### Build fix required during the upgrade (commit `b5ca57a`)
+
+The first Android build failed at `:app:processDebugResources`:
+`resource drawable/splashscreen_logo not found`. `expo-splash-screen@57.0.8`
+writes `windowSplashScreenAnimatedIcon=@drawable/splashscreen_logo` into
+`styles.xml` whenever `backgroundColor` is set, but only generates that drawable
+when an `image` is also given. Fixed by passing `image: ./assets/icon.png`
+(+ `imageWidth: 200`) to the plugin, and adding `expo-system-ui` (prebuild
+flagged it as required for `userInterfaceStyle: light`). Both were behaviours
+SDK 54 handled implicitly.
 
 ## Known issue: `@expo/config-plugins` direct dependency
 
@@ -124,26 +140,27 @@ Suggested `npm audit` CI gate: fail on `high` and above; allow the current
 
 The JS/dependency/config work is done and committed on branch
 `chore/expo-sdk57-upgrade`. A rollback tag `deps-sdk54-baseline` points at the
-pre-upgrade `main`. The following require a machine with the native toolchains
-(Xcode + CocoaPods, Android SDK + JDK 17) and a physical device — I can't do
-them here.
+pre-upgrade `main`. The **Android debug build has been verified locally on this
+machine** (see Validation above). What remains: the **iOS** native build
+(macOS-only) and **on-device AR regression testing** (physical device required).
 
-## 1. Regenerate native projects
+## 1. Regenerate native projects — DONE for Android on this machine
 
-The local `android/` folder is stale (built against SDK 54) and is gitignored /
-easignored, so it isn't in the repo. Delete it and let CNG regenerate:
+The local `android/` folder was regenerated with `npx expo prebuild --clean` and
+built successfully. It is gitignored/easignored so it is not in the repo; EAS and
+other machines regenerate it from `app.json`.
 
+On a fresh checkout / another machine:
 ```
-cd C:\repositories\Arise_Mobile
-rmdir /s /q android        # PowerShell: Remove-Item -Recurse -Force android
 git checkout chore/expo-sdk57-upgrade
 npm ci
-npx expo prebuild --clean          # regenerates android/ (and ios/ on macOS)
+npx expo prebuild --clean
 ```
-
 If `expo prebuild` throws `Cannot find module '@expo/config-plugins'`, confirm
 `@expo/config-plugins` is in `devDependencies` and `npm ci` completed — that is
 the workaround described above.
+
+On macOS, `expo prebuild` also generates `ios/`; then `cd ios && pod install`.
 
 ## 2. Confirm `expo-doctor` is green on a stable network
 
@@ -157,10 +174,12 @@ timeout), fix the reported `app.json` field before building.
 
 ## 3. Build
 
-Local:
+Android debug APK is already verified on this machine
+(`android/app/build/outputs/apk/debug/app-debug.apk`). Remaining:
+
 ```
-npx expo run:android        # needs Android SDK + JDK 17
-npx expo run:ios            # needs macOS + Xcode + pod install
+npx expo run:android        # to install the dev client on a device + start Metro
+npx expo run:ios            # macOS only — Xcode + pod install; NOT yet verified
 ```
 
 or EAS (recommended — matches your `eas.json`):
