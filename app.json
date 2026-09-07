@@ -21,7 +21,8 @@
         "NSPhotoLibraryUsageDescription": "ARISE would like to read photos for the AR placard scanner.",
         "NSPhotoLibraryAddUsageDescription": "Allow $(PRODUCT_NAME) to save photos",
         "NSCameraUsageDescription": "ARISE uses your camera for the AR placard scanner.",
-        "NSMicrophoneUsageDescription": "ARISE's AR camera session may request microphone access, even though audio isn't used."
+        "NSMicrophoneUsageDescription": "ARISE's AR camera session may request microphone access, even though audio isn't used.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "plugins": [
@@ -63,7 +64,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#FFFFFF"
+          "backgroundColor": "#FFFFFF",
+          "image": "./assets/icon.png",
+          "imageWidth": 200
         }
       ]
     ],
