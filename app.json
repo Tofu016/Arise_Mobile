@@ -7,9 +7,6 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./assets/icon.png",
-    "splash": {
-      "backgroundColor": "#FFFFFF"
-    },
     "android": {
       "package": "com.arise.campusnavigator",
       "permissions": [
@@ -61,6 +58,12 @@
             "photosPermission": "ARISE would like to read photos for the AR placard scanner.",
             "savephotosPermission": "ARISE would like to save photos during the AR placard scanner."
           }
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FFFFFF"
         }
       ]
     ],
