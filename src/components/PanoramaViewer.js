@@ -165,10 +165,14 @@ export default function PanoramaViewer({ pixels, hotspots = [], markers = [], on
     const dx = pageX - startTouchRef.current.x;
     const dy = pageY - startTouchRef.current.y;
     const sensitivity = 0.15;
-    const nextYaw = startRotationRef.current.yaw - dx * sensitivity;
+    // "Grab and drag the scene" — the same scheme as Google Street View: a
+    // swipe pulls the panorama along with the finger, so the camera turns the
+    // OPPOSITE way to the drag. Dragging right reveals what was to your left.
+    // (Adding dx/dy here rather than subtracting is what flips it that way.)
+    const nextYaw = startRotationRef.current.yaw + dx * sensitivity;
     // Clamped so you can't flip the view upside-down past the poles — same
     // constraint the web version's OrbitControls has.
-    const nextPitch = Math.max(-89, Math.min(89, startRotationRef.current.pitch - dy * sensitivity));
+    const nextPitch = Math.max(-89, Math.min(89, startRotationRef.current.pitch + dy * sensitivity));
     rotationRef.current = { yaw: nextYaw, pitch: nextPitch };
   };
 
