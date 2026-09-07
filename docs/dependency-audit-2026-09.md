@@ -162,6 +162,29 @@ the workaround described above.
 
 On macOS, `expo prebuild` also generates `ios/`; then `cd ios && pod install`.
 
+### `SDK location not found` after `prebuild --clean`
+
+`expo prebuild --clean` deletes `android/`, including `android/local.properties`
+(the file that pins `sdk.dir`). It is correctly gitignored — it is machine
+specific — so after a clean prebuild Gradle has nothing pointing at the SDK and
+fails with:
+
+```
+SDK location not found. Define a valid SDK location with an ANDROID_HOME
+environment variable or by setting the sdk.dir path in ... local.properties
+```
+
+Fix (do this once, permanently, so it survives every future clean prebuild):
+
+- **Set `ANDROID_HOME` as a user environment variable** to your SDK path
+  (`C:\Users\dothy\AppData\Local\Android\Sdk`) and **open a new terminal** — an
+  already-open shell will not pick up a newly-set variable. Verified: with
+  `ANDROID_HOME` set and no `local.properties`, Gradle configures fine.
+- Or, after each `prebuild --clean`, recreate the file:
+  `echo "sdk.dir=C:/Users/dothy/AppData/Local/Android/Sdk" > android/local.properties`
+- `npx expo run:android` writes `android/local.properties` itself when it can
+  detect the SDK, so prefer it over calling `./gradlew` directly.
+
 ## 2. Confirm `expo-doctor` is green on a stable network
 
 ```
