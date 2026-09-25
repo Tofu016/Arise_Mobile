@@ -1,14 +1,22 @@
 import { useEffect, useState } from "react";
-import { collection, doc, onSnapshot, setDoc, deleteDoc } from "firebase/firestore";
-import { db } from "../firebase";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// Ported unchanged from the web app — this is pure Firestore + React state,
-// no DOM dependencies at all, so it works identically here. Every consumer
-// (the mobile MainPage, eventually) reads through getCustomBuildings()/
-// useCustomBuildingsVersion() and stays in sync automatically as buildings
-// are added or removed from ANY session — including the web admin panel.
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost/Arise_API/index.php";
 
-const COLLECTION = "buildings";
+// Rewritten to call Buildings_API instead of a live Firestore
+// subscription — same module-level pattern as before (not a hook
+// itself; subscribes/fetches once at import time, notifies any
+// component that's opted in via useCustomBuildingsVersion()). No live
+// subscription anymore, matching the same trade-off already made
+// throughout this whole migration — a fetch-once-on-load, refreshable
+// on demand, rather than an instant update the moment something
+// changes elsewhere.
+//
+// Kept as the full, identical shape to the web app's own version —
+// including addCustomBuilding/deleteCustomBuilding, which the mobile
+// app still has no admin UI to ever call — for the same reason as
+// before: keeping this file identical between the two codebases means
+// future copy-paste updates stay simple, with nothing to reconcile.
 
 let customBuildings = [];
 const listeners = new Set();
@@ -17,10 +25,21 @@ function notify() {
   listeners.forEach((fn) => fn());
 }
 
-onSnapshot(collection(db, COLLECTION), (snapshot) => {
-  customBuildings = snapshot.docs.map((d) => d.data());
-  notify();
-});
+fetch(`${API_BASE_URL}/Buildings_API/getAll`)
+  .then((response) => response.json())
+  .then((data) => {
+    if (data.success) {
+      customBuildings = data.buildings.map((b) => ({
+        id: b.id,
+        label: b.name,
+        floors: Array.from({ length: b.floor_count }, (_, i) => i + 1),
+      }));
+      notify();
+    }
+  })
+  .catch((err) => {
+    console.error("Failed to load buildings:", err);
+  });
 
 export function getCustomBuildings() {
   return customBuildings;
@@ -36,15 +55,18 @@ export function useCustomBuildingsVersion() {
   useEffect(() => subscribeCustomBuildings(() => setTick((t) => t + 1)), []);
 }
 
-function slugify(name) {
-  return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+async function getToken() {
+  return AsyncStorage.getItem("authToken");
 }
 
-// Kept even though the mobile app has no admin UI to call these from — the
-// mobile app only ever reads buildings, never creates them. Keeping the
-// full file identical to the web version means future copy-paste updates
-// between the two stay simple, with nothing to reconcile.
-export function addCustomBuilding({ name, floorCount, reservedIds = [] }) {
+// Kept even though the mobile app has no admin UI to call this from —
+// see this file's own top comment. Genuinely calls Buildings_API's
+// create endpoint, same as the web admin's own version of this
+// function does — matching the original Firestore version's own
+// behavior (it genuinely persisted too, even though nothing on mobile
+// ever triggered it), rather than quietly becoming a no-op just
+// because nothing currently calls it.
+export async function addCustomBuilding({ name, floorCount, reservedIds = [] }) {
   const trimmedName = (name || "").trim();
   if (!trimmedName) {
     throw new Error("Building name is required.");
@@ -67,18 +89,32 @@ export function addCustomBuilding({ name, floorCount, reservedIds = [] }) {
     n += 1;
   }
 
-  const floors = Array.from({ length: count }, (_, i) => i + 1);
-  const building = { id, label: trimmedName, floors };
+  const building = { id, label: trimmedName, floors: Array.from({ length: count }, (_, i) => i + 1) };
 
-  setDoc(doc(db, COLLECTION, id), building).catch((err) => {
-    console.error("Failed to save building to Firestore:", err);
+  const token = await getToken();
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  fetch(`${API_BASE_URL}/Buildings_API/create`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ id, name: trimmedName, floor_count: count }),
+  }).catch((err) => {
+    console.error("Failed to save building:", err);
   });
 
   return building;
 }
 
-export function deleteCustomBuilding(id) {
-  deleteDoc(doc(db, COLLECTION, id)).catch((err) => {
-    console.error("Failed to delete building from Firestore:", err);
+export async function deleteCustomBuilding(id) {
+  const token = await getToken();
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  fetch(`${API_BASE_URL}/Buildings_API/delete/${id}`, {
+    method: "DELETE",
+    headers,
+  }).catch((err) => {
+    console.error("Failed to delete building:", err);
   });
 }

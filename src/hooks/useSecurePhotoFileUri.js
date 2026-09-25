@@ -1,13 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { ref, getBytes } from "firebase/storage";
 import * as FileSystem from "expo-file-system/legacy";
-import { storage } from "../firebase";
 
-function extractStoragePath(photo) {
-  if (!photo) return null;
-  const match = photo.match(/\/o\/([^?]+)/);
-  return match ? decodeURIComponent(match[1]) : photo;
-}
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost/Arise_API/index.php";
 
 // Dependency-free bytes -> base64 conversion — avoids relying on btoa/Buffer
 // being available in the Hermes JS engine, which isn't guaranteed. Verified
@@ -32,18 +26,21 @@ function bytesToBase64(bytes) {
   return result;
 }
 
-// Mobile equivalent of the web app's useSecurePhotoUrl.js — same underlying
-// security model (fetches bytes through the Storage SDK, which genuinely
-// enforces Storage Security Rules, unlike a public download-URL link).
+// Rewritten to call Arise_API's IndoorUploads_API/serve endpoint instead
+// of Firebase Storage's getBytes() — genuinely public now, no auth token
+// needed (see useSecurePhotoPixels.js's own comment for why).
 //
-// Returns a real file:// URI, not a data: URI — this is specifically for
-// Viro360Image, whose native image-loading path appears to not handle
-// inline data URIs reliably (our one working Viro360Image test used a
-// require()'d bundled asset — a real file, resolved through Metro's asset
-// system — while a data: URI produced nothing at all, even though the exact
-// same data URI works fine with the simpler ViroImage component). A real
-// temp file is structurally closer to what a bundled asset resolves to
-// under the hood, which is the whole reasoning behind this fix.
+// &format=jpeg requested here too, same conservative reasoning as the
+// panorama pipeline: this file's own original comments describe a
+// genuinely fragile, trial-and-error history getting ViroReact's
+// Viro360Image to reliably display anything at all (their one working
+// test needed a bundled require() asset, not even a data: URI). Given
+// how finicky that integration already proved for a well-supported
+// format, there's no real confidence it would handle WebP cleanly
+// either — asking the backend to convert first avoids testing that
+// uncertainty on the one AR path that's already been this hard to get
+// working. Always writes a real .jpg file now (not the original
+// extension) as a direct consequence.
 export function useSecurePhotoFileUri(photo) {
   const [uri, setUri] = useState(null);
   const [error, setError] = useState(null);
@@ -52,14 +49,16 @@ export function useSecurePhotoFileUri(photo) {
   useEffect(() => {
     setUri(null);
     setError(null);
-    const path = extractStoragePath(photo);
-    if (!path) return;
+    if (!photo) return;
 
     let cancelled = false;
+    const url = `${API_BASE_URL}/IndoorUploads_API/serve?path=${encodeURIComponent(photo)}&format=jpeg`;
 
     (async () => {
       try {
-        const buffer = await getBytes(ref(storage, path));
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("Couldn't load photo.");
+        const buffer = await response.arrayBuffer();
         if (cancelled) return;
         const base64 = bytesToBase64(new Uint8Array(buffer));
 
@@ -70,8 +69,7 @@ export function useSecurePhotoFileUri(photo) {
           FileSystem.deleteAsync(lastFileUri.current, { idempotent: true }).catch(() => {});
         }
 
-        const ext = path.match(/\.(\w+)$/)?.[1] || "jpg";
-        const fileUri = `${FileSystem.cacheDirectory}ar-photo-${Date.now()}.${ext}`;
+        const fileUri = `${FileSystem.cacheDirectory}ar-photo-${Date.now()}.jpg`;
         await FileSystem.writeAsStringAsync(fileUri, base64, {
           encoding: FileSystem.EncodingType.Base64,
         });

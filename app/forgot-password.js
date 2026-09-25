@@ -1,25 +1,22 @@
 import { useState } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { Link } from "expo-router";
-import { sendPasswordResetEmail } from "firebase/auth";
-import { auth } from "../src/firebase";
-import { friendlyAuthError } from "../src/utils/authErrors";
+import { useAuth } from "../src/context/useAuth";
 import { colors, typography, radii, spacing } from "../src/theme";
 import ScreenContainer from "../src/components/ScreenContainer";
 import FormField from "../src/components/FormField";
 import Button from "../src/components/Button";
 import ErrorDialog from "../src/components/ErrorDialog";
 
-// Same account-enumeration protection as web: a generic, identical
-// confirmation message regardless of whether the email actually has an
-// account — revealing "no account with that email" would let anyone probe
-// for which addresses are registered. auth/user-not-found is deliberately
-// swallowed below; genuine problems (bad email format, network issues)
-// still surface normally.
+// Always resolves successfully — the backend's own anti-enumeration
+// protection (see Auth_API::forgotPassword), so there's no separate
+// "user not found" case to special-case here anymore, unlike the
+// Firebase version this replaces.
 const GENERIC_SENT_MESSAGE =
   "If an account exists for that email, a password reset link has been sent. Check your inbox (and spam folder).";
 
 export default function ForgotPasswordScreen() {
+  const { forgotPassword } = useAuth();
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -29,14 +26,10 @@ export default function ForgotPasswordScreen() {
     setError("");
     setSubmitting(true);
     try {
-      await sendPasswordResetEmail(auth, email.trim().toLowerCase());
+      await forgotPassword(email.trim().toLowerCase());
       setSent(true);
     } catch (err) {
-      if (err?.code === "auth/user-not-found") {
-        setSent(true);
-      } else {
-        setError(friendlyAuthError(err));
-      }
+      setError(err.message || "Couldn't send reset link. Please try again.");
     } finally {
       setSubmitting(false);
     }

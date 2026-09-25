@@ -1,65 +1,66 @@
 import { useEffect, useState } from "react";
-import { ref, getBytes } from "firebase/storage";
 import jpeg from "jpeg-js";
-import { storage } from "../firebase";
 
-function extractStoragePath(photo) {
-  if (!photo) return null;
-  const match = photo.match(/\/o\/([^?]+)/);
-  return match ? decodeURIComponent(match[1]) : photo;
-}
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost/Arise_API/index.php";
 
-// Decoded pixels persist for the life of the app session — re-visiting a
-// node you've already seen skips the (comparatively slow) fetch+decode
-// entirely. No eviction/size cap for now — a typical tour session visits a
-// bounded number of unique panoramas, so this is a reasonable trade-off
-// worth revisiting only if memory actually becomes a real problem.
 const pixelCache = new Map();
 
-// Mobile equivalent of the web app's useSecurePhotoUrl.js — same underlying
-// security model (fetches bytes through the Storage SDK, which genuinely
-// enforces Storage Security Rules, unlike a public download-URL link).
-//
-// Output format differs from web on purpose, and deliberately avoids the
-// native texture-loading bridge entirely: after several attempts at getting
-// expo's native image-loading pipeline to reliably feed a JPEG file into a
-// Three.js texture (each either crashing or silently rendering black), the
-// one thing that's worked without any trouble is a DataTexture built from
-// raw pixel data. So instead of writing a file and asking a native loader
-// to read+decode it, this decodes the JPEG bytes directly in JS (via
-// jpeg-js) and hands back plain { width, height, data } — pixels the
-// PanoramaViewer can feed straight into THREE.DataTexture, the one part of
-// this whole pipeline that's been reliable from the very first try.
+// TEMPORARY diagnostic logging — now includes a global.__photoDecodedAt
+// absolute timestamp specifically so PanoramaViewer.js can compute the
+// real gap between "decode finished here" and "texture creation started
+// there", across two separate files/components. Plain console.log calls
+// in each file can't be directly compared without a shared reference
+// point like this — this is that reference point. Remove both this and
+// the matching code in PanoramaViewer.js once the actual bottleneck is
+// identified.
 export function useSecurePhotoPixels(photo) {
   const [pixels, setPixels] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     setError(null);
-    const path = extractStoragePath(photo);
-    if (!path) {
+    if (!photo) {
       setPixels(null);
       return;
     }
 
-    const cached = pixelCache.get(path);
+    const cached = pixelCache.get(photo);
     if (cached) {
+      console.log(`[photo] cache hit for ${photo}`);
       setPixels(cached);
       return;
     }
 
     setPixels(null);
     let cancelled = false;
-    getBytes(ref(storage, path))
+
+    const url = `${API_BASE_URL}/IndoorUploads_API/serve?path=${encodeURIComponent(photo)}&format=jpeg`;
+    const t0 = Date.now();
+    console.log(`[photo] fetch start: ${url}`);
+
+    fetch(url)
+      .then((response) => {
+        console.log(`[photo] fetch responded after ${Date.now() - t0}ms, status ${response.status}`);
+        if (!response.ok) throw new Error(`Couldn't load photo (status ${response.status}).`);
+        return response.arrayBuffer();
+      })
       .then((buffer) => {
         if (cancelled) return;
+        console.log(`[photo] got ${buffer.byteLength} bytes after ${Date.now() - t0}ms, starting decode`);
+        const tDecode = Date.now();
         const decoded = jpeg.decode(new Uint8Array(buffer), { useTArray: true });
+        console.log(`[photo] decode finished after ${Date.now() - tDecode}ms (${decoded.width}x${decoded.height})`);
         if (cancelled) return;
         const result = { width: decoded.width, height: decoded.height, data: decoded.data };
-        pixelCache.set(path, result);
+        pixelCache.set(photo, result);
+        // Absolute timestamp, shared across files via a global — this is
+        // the actual moment setPixels() is about to be called, which is
+        // what PanoramaViewer.js's own logging compares itself against.
+        global.__photoDecodedAt = Date.now();
         setPixels(result);
       })
       .catch((err) => {
+        console.log(`[photo] FAILED after ${Date.now() - t0}ms:`, err.message);
         if (!cancelled) setError(err.message || "Failed to load/decode photo.");
       });
 

@@ -1,9 +1,7 @@
 import { useState } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { Link, useRouter } from "expo-router";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "../src/firebase";
-import { friendlyAuthError } from "../src/utils/authErrors";
+import { useAuth } from "../src/context/useAuth";
 import { colors, typography, spacing } from "../src/theme";
 import ScreenContainer from "../src/components/ScreenContainer";
 import FormField from "../src/components/FormField";
@@ -12,6 +10,7 @@ import ErrorDialog from "../src/components/ErrorDialog";
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -21,14 +20,14 @@ export default function LoginScreen() {
     setError("");
     setSubmitting(true);
     try {
-      await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
+      await login(email.trim().toLowerCase(), password);
       // Always navigate to "/" — if the account turns out to be pending,
       // the root layout's own auth guard notices the role and redirects to
       // /approval on its own, so there's no need to duplicate that check
       // here (matches how the web version's RequireAuth handles it too).
       router.replace("/");
     } catch (err) {
-      setError(friendlyAuthError(err));
+      setError(err.message || "Couldn't sign in. Please try again.");
     } finally {
       setSubmitting(false);
     }

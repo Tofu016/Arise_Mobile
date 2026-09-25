@@ -1,10 +1,7 @@
 import { useState } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { Link, useRouter } from "expo-router";
-import { createUserWithEmailAndPassword, updateProfile as updateAuthProfile } from "firebase/auth";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
-import { auth, db } from "../src/firebase";
-import { friendlyAuthError } from "../src/utils/authErrors";
+import { useAuth } from "../src/context/useAuth";
 import { colors, typography, spacing } from "../src/theme";
 import ScreenContainer from "../src/components/ScreenContainer";
 import FormField from "../src/components/FormField";
@@ -15,6 +12,7 @@ const ALLOWED_DOMAIN = "@sdca.edu.ph";
 
 export default function RegisterScreen() {
   const router = useRouter();
+  const { register } = useAuth();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -26,16 +24,19 @@ export default function RegisterScreen() {
     setError("");
     const trimmedEmail = email.trim().toLowerCase();
 
-    // Client-side check for immediate feedback — a UX convenience, not real
-    // enforcement. The same server-side blocking Cloud Function
-    // (enforceEmailDomain) already backs this up regardless of which client
-    // is used to register, web or mobile.
+    // Client-side check for immediate feedback — the real enforcement is
+    // server-side (register() in Auth_API), same domain rule, checked
+    // again regardless of what happens here.
     if (!trimmedEmail.endsWith(ALLOWED_DOMAIN)) {
       setError(`Only ${ALLOWED_DOMAIN} email addresses can register.`);
       return;
     }
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters.");
+    // 8, not 6 — matches the backend's actual minimum exactly, so a
+    // password that clears this check is guaranteed to clear the
+    // server's too, rather than passing here and failing there with a
+    // confusing, inconsistent error.
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
       return;
     }
     if (password !== confirmPassword) {
@@ -45,21 +46,12 @@ export default function RegisterScreen() {
 
     setSubmitting(true);
     try {
-      const cred = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
-      if (name.trim()) {
-        await updateAuthProfile(cred.user, { displayName: name.trim() });
-      }
-      // New accounts start as "pending" — same as web, an admin has to
-      // approve/assign a real role before this account can use anything.
-      await setDoc(doc(db, "users", cred.user.uid), {
-        email: trimmedEmail,
-        name: name.trim() || null,
-        role: "pending",
-        createdAt: serverTimestamp(),
-      });
+      // New accounts start as "pending" — an admin has to approve/assign
+      // a real role before this account can actually use anything.
+      await register(trimmedEmail, password, name.trim());
       router.replace("/");
     } catch (err) {
-      setError(friendlyAuthError(err));
+      setError(err.message || "Couldn't register. Please try again.");
     } finally {
       setSubmitting(false);
     }

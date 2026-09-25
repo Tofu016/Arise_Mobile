@@ -36,13 +36,36 @@ function CameraRig({ rotationRef }) {
 }
 
 function PanoramaSphere({ pixels }) {
-  // Built directly from raw decoded pixel data — the one part of this whole
-  // pipeline that's worked reliably from the first attempt, since it never
-  // touches the native asset/texture-loading bridge that kept failing for
-  // an actual JPEG file (crashing outright, or loading "successfully" with
-  // zero errors yet rendering solid black).
+  // TEMPORARY diagnostic timing — logs when the JS-level DataTexture
+  // object is actually created (fast, just object construction) versus
+  // when the FIRST real GPU-rendered frame after that happens (this is
+  // what actually captures the expensive part: Three.js/expo-gl
+  // uploading the raw pixel data to the GPU, which happens inside their
+  // own internal render loop, not something we call and await directly).
+  // Remove the console.log + useFrame block below once the bottleneck
+  // is identified.
+  const tCreateStart = useRef(0);
+  const loggedFirstFrame = useRef(false);
+
   const texture = useMemo(() => {
     if (!pixels) return null;
+    tCreateStart.current = Date.now();
+    loggedFirstFrame.current = false;
+
+    // The actual gap this whole diagnostic pass exists to measure —
+    // compares against the shared timestamp useSecurePhotoPixels.js sets
+    // the moment its own decode finishes, right before calling
+    // setPixels(). If this number is genuinely large, the delay is
+    // happening somewhere in the React re-render chain between that
+    // state update and this component actually receiving the new
+    // pixels prop — not in decode, and not in this component's own
+    // texture creation or GPU render, both already confirmed fast.
+    if (global.__photoDecodedAt) {
+      console.log(`[render] gap from decode-finished to texture-creation-start: ${tCreateStart.current - global.__photoDecodedAt}ms`);
+    }
+
+    console.log(`[render] DataTexture creation start (${pixels.width}x${pixels.height})`);
+
     const tex = new THREE.DataTexture(pixels.data, pixels.width, pixels.height, THREE.RGBAFormat);
     tex.generateMipmaps = false;
     tex.minFilter = THREE.LinearFilter;
@@ -53,8 +76,20 @@ function PanoramaSphere({ pixels }) {
     // isn't upside-down. If it still looks flipped, this is the toggle.
     tex.flipY = true;
     tex.needsUpdate = true;
+
+    console.log(`[render] DataTexture JS object ready after ${Date.now() - tCreateStart.current}ms (GPU upload still pending)`);
     return tex;
   }, [pixels]);
+
+  // Fires on every rendered frame — logs only once per new texture, the
+  // first time it actually runs after a fresh DataTexture was created.
+  // This is the real "time until something is actually on screen" number.
+  useFrame(() => {
+    if (texture && !loggedFirstFrame.current) {
+      loggedFirstFrame.current = true;
+      console.log(`[render] first frame drawn ${Date.now() - tCreateStart.current}ms after texture creation started`);
+    }
+  });
 
   if (!texture) return null;
 

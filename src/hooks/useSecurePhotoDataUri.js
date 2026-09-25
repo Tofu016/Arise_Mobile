@@ -1,12 +1,6 @@
 import { useEffect, useState } from "react";
-import { ref, getBytes } from "firebase/storage";
-import { storage } from "../firebase";
 
-function extractStoragePath(photo) {
-  if (!photo) return null;
-  const match = photo.match(/\/o\/([^?]+)/);
-  return match ? decodeURIComponent(match[1]) : photo;
-}
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost/Arise_API/index.php";
 
 // Dependency-free bytes -> base64 conversion — avoids relying on btoa/Buffer
 // being available in the Hermes JS engine, which isn't guaranteed. Verified
@@ -31,15 +25,32 @@ function bytesToBase64(bytes) {
   return result;
 }
 
-// For plain 2D photo display (room cards, etc.) via React Native's own
-// <Image> component — deliberately NOT the same approach as the panorama's
-// useSecurePhotoPixels. That one exists because Three.js's texture pipeline
-// specifically can't handle data: URIs (that whole saga is documented in
-// that file). React Native's own <Image> component is completely
-// different — it natively and reliably supports data: URIs, so this is
-// the much simpler path: fetch bytes, base64-encode them, hand the result
-// straight to <Image source={{ uri: ... }} />. No native asset bridge, no
-// JPEG decoding needed at all.
+const MIME_BY_EXT = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+};
+
+function mimeForPath(path) {
+  const ext = path.split(".").pop().toLowerCase();
+  return MIME_BY_EXT[ext] || "image/jpeg";
+}
+
+// Rewritten to call Arise_API's IndoorUploads_API/serve endpoint instead
+// of Firebase Storage's getBytes() — genuinely public now, no auth token
+// needed (see useSecurePhotoPixels.js's own comment for why).
+//
+// Unlike that file, this one does NOT request &format=jpeg — React
+// Native's own <Image> component natively and reliably handles WebP
+// (and PNG, and GIF) through a data: URI, same as it always handled
+// JPEG. The JPEG-only constraint belongs specifically to the panorama
+// pipeline's jpeg-js decoder, not to this component at all. The MIME
+// type in the resulting data: URI is now read from the actual file
+// extension rather than hardcoded to image/jpeg — plain (non-360) room
+// photos specifically never go through any format-conversion step on
+// upload, so their real format can genuinely vary.
 export function useSecurePhotoDataUri(photo) {
   const [uri, setUri] = useState(null);
   const [error, setError] = useState(null);
@@ -47,15 +58,20 @@ export function useSecurePhotoDataUri(photo) {
   useEffect(() => {
     setUri(null);
     setError(null);
-    const path = extractStoragePath(photo);
-    if (!path) return;
+    if (!photo) return;
 
     let cancelled = false;
-    getBytes(ref(storage, path))
+    const url = `${API_BASE_URL}/IndoorUploads_API/serve?path=${encodeURIComponent(photo)}`;
+
+    fetch(url)
+      .then((response) => {
+        if (!response.ok) throw new Error("Couldn't load photo.");
+        return response.arrayBuffer();
+      })
       .then((buffer) => {
         if (cancelled) return;
         const base64 = bytesToBase64(new Uint8Array(buffer));
-        setUri(`data:image/jpeg;base64,${base64}`);
+        setUri(`data:${mimeForPath(photo)};base64,${base64}`);
       })
       .catch((err) => {
         if (!cancelled) setError(err.message || "Failed to load photo.");
