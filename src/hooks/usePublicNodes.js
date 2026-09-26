@@ -1,6 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost/Arise_API/index.php";
+import { apiRequest } from "../api/client";
+import { createSharedResource } from "../api/sharedResource";
 
 // Rewritten to call Nodes_API instead of a live Firestore subscription.
 // Read-only, same as before — no CRUD needed here, unlike the web
@@ -15,10 +14,25 @@ const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost/A
 // genuine, deliberate trade-off already made across this whole
 // project (confirmed early in the web migration), not something new
 // introduced here.
+// Arise_API returns MySQL numbers as strings ("90", "-1"). Converted here
+// so nothing downstream does string math by accident — e.g. a "45" yaw
+// plus a drag offset concatenating to "451.2", or floorLabel's -1 check
+// never matching "-1".
+function num(value) {
+  return value === null || value === undefined || value === "" ? null : Number(value);
+}
+
 function toFrontendNode(row) {
+  // A hotspot's defaultYaw/defaultPitch are the view to arrive facing when
+  // walking that one link — null means "no override" (face the arrow).
   const hotspots = {};
   const neighbors = (row.neighbors || []).map((n) => {
-    hotspots[n.neighbor_id] = { yaw: n.yaw, pitch: n.pitch };
+    hotspots[n.neighbor_id] = {
+      yaw: num(n.yaw),
+      pitch: num(n.pitch),
+      defaultYaw: num(n.default_yaw),
+      defaultPitch: num(n.default_pitch),
+    };
     return n.neighbor_id;
   });
 
@@ -26,8 +40,13 @@ function toFrontendNode(row) {
     id: m.id,
     type: m.type,
     label: m.label,
-    yaw: m.yaw,
-    pitch: m.pitch,
+    yaw: num(m.yaw),
+    pitch: num(m.pitch),
+    // Elevator landings only (see utils/elevators.js): which elevator this
+    // landing belongs to, and the floors it stops at — joined from the one
+    // `elevators` row by the API.
+    elevatorId: m.elevator_id ?? null,
+    accessibleFloors: (m.accessible_floors || []).map(Number),
   }));
 
   const rooms = (row.rooms || []).map((r) => r.room_name);
@@ -36,9 +55,17 @@ function toFrontendNode(row) {
     id: row.id,
     name: row.name,
     building: row.building,
-    floor: row.floor,
+    floor: num(row.floor),
     type: row.type,
-    leadsToFloor: row.leads_to_floor !== null ? row.leads_to_floor : null,
+    // Every floor a transition (stairs/elevator node) leads to.
+    leadsToFloors: (row.leads_to_floors || []).map(Number),
+    // At most one per building floor: where the floor/building pickers land.
+    startingNode: Number(row.is_starting_node) === 1,
+    // The view to face when jumped onto this node; null means dead ahead.
+    startingViewYaw: num(row.starting_view_yaw),
+    startingViewPitch: num(row.starting_view_pitch),
+    campusEntrance: Number(row.is_campus_entrance) === 1,
+    buildingEntrance: Number(row.is_building_entrance) === 1,
     photo: row.photo_path || "",
     rooms,
     neighbors,
@@ -47,26 +74,13 @@ function toFrontendNode(row) {
   };
 }
 
+// One shared copy for every screen (see sharedResource.js).
+const nodesResource = createSharedResource(async () => {
+  const data = await apiRequest("Nodes_API/getAll");
+  return data.nodes.map(toFrontendNode);
+});
+
 export function usePublicNodes() {
-  const [nodes, setNodes] = useState(null); // null while loading, matching the original contract
-  const [error, setError] = useState(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/Nodes_API/getAll`);
-      const data = await response.json();
-      if (!data.success) {
-        throw new Error(data.error || "Couldn't load nodes.");
-      }
-      setNodes(data.nodes.map(toFrontendNode));
-    } catch (err) {
-      setError(err.message);
-    }
-  }, []);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-
-  return { nodes, error };
+  const { data, error } = nodesResource.useResource();
+  return { nodes: data, error }; // nodes is null while loading, matching the original contract
 }

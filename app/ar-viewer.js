@@ -15,7 +15,7 @@ import {
   ViroTrackingStateConstants,
 } from "@reactvision/react-viro";
 import { usePublicNodes } from "../src/hooks/usePublicNodes";
-import { useSecurePhotoFileUri } from "../src/hooks/useSecurePhotoFileUri";
+import { usePhotoFile } from "../src/hooks/usePhotoFile";
 import { colors, typography, radii, spacing } from "../src/theme";
 import BottomSheet from "../src/components/BottomSheet";
 import Button from "../src/components/Button";
@@ -50,8 +50,9 @@ ViroAnimations.registerAnimations({
 // session.
 //
 // The real bug in the very first version of this same in-place approach:
-// useSecurePhotoFileUri resets its own uri to null at the START of every
-// new fetch, including mid-switch — and the whole portal structure (door,
+// usePhotoFile returns a null uri while a photo not yet downloaded is
+// fetched, including mid-switch (already-visited nodes come back
+// instantly from its shared cache) — and the whole portal structure (door,
 // mask, boundary) was gated on photoUri being truthy, so that momentary
 // null likely unmounted the entire structure, not just the photo,
 // explaining both bugs (position resetting, scale looking wrong) as one
@@ -68,7 +69,7 @@ function ArViewerScene({ initialNodeId, onRegisterNavigate, onNodeChange }) {
   const { nodes } = usePublicNodes();
   const [viewNodeId, setViewNodeId] = useState(initialNodeId);
   const viewNode = nodes?.find((n) => n.id === viewNodeId);
-  const { uri: photoUri } = useSecurePhotoFileUri(viewNode?.photo);
+  const { uri: photoUri } = usePhotoFile(viewNode?.photo);
 
   useEffect(() => {
     onRegisterNavigate?.(setViewNodeId);

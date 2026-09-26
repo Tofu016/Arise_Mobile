@@ -44,7 +44,8 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "ARISE uses your camera to scan room placards."
+          "cameraPermission": "ARISE uses your camera to scan room placards.",
+          "barcodeScannerEnabled": false
         }
       ],
       [
@@ -68,7 +69,8 @@
           "image": "./assets/icon.png",
           "imageWidth": 200
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "extra": {
       "router": {},

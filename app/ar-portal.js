@@ -15,7 +15,7 @@ import {
   ViroTrackingStateConstants,
 } from "@reactvision/react-viro";
 import { usePlacardDialogs } from "../src/hooks/usePlacardDialogs";
-import { useSecurePhotoFileUri } from "../src/hooks/useSecurePhotoFileUri";
+import { usePhotoFile } from "../src/hooks/usePhotoFile";
 import { colors, typography, radii, spacing, shadows } from "../src/theme";
 import Button from "../src/components/Button";
 
@@ -82,7 +82,7 @@ ViroAnimations.registerAnimations({
 // The true immersive portal (ViroPortalScene + Viro360Image), plus a flat
 // preview layer visible from outside — see the flat-preview comment below
 // for why both exist together. The photo comes through a real file:// URI,
-// not a data: URI — see useSecurePhotoFileUri.js for the reasoning specific
+// not a data: URI — see usePhotoFile.js for the reasoning specific
 // to Viro360Image.
 //
 // Data-fetching lives INSIDE this component, not passed in as a photoUri
@@ -96,7 +96,7 @@ ViroAnimations.registerAnimations({
 function ArScene({ roomName }) {
   const { getForRoom } = usePlacardDialogs();
   const placard = getForRoom(roomName);
-  const { uri: photoUri } = useSecurePhotoFileUri(placard?.photo360);
+  const { uri: photoUri } = usePhotoFile(placard?.photo360);
 
   const [placedPosition, setPlacedPosition] = useState(null);
   // Tracks whether the rise animation has finished — once true, the door
@@ -234,7 +234,7 @@ export default function ArPortalScreen() {
   // "genuinely has no photo set" so the UI doesn't sit on a spinner forever
   // for a room an admin just hasn't added a photo to yet.
   const placardHasNoPhoto = Boolean(placard && !placard.photo360);
-  const { uri: photoUri, error: photoError } = useSecurePhotoFileUri(placard?.photo360);
+  const { uri: photoUri, error: photoError } = usePhotoFile(placard?.photo360);
 
   // No room name at all — someone navigated here directly rather than
   // through the scanner's real flow. Shown instead of silently rendering an

@@ -1,7 +1,6 @@
-import { useEffect, useState, useCallback } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost/Arise_API/index.php";
+import { useCallback } from "react";
+import { apiRequest } from "../api/client";
+import { createSharedResource } from "../api/sharedResource";
 
 // Matching by the room's `roomName` text, not a database ID — see the
 // web app's own equivalent hook for the full reasoning: pre-existing
@@ -10,10 +9,6 @@ const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost/A
 // that can't silently miss a real existing room.
 function normalize(name) {
   return (name || "").trim().toUpperCase();
-}
-
-async function getToken() {
-  return AsyncStorage.getItem("authToken");
 }
 
 function toFrontendDialog(row) {
@@ -45,20 +40,18 @@ function toFrontendDialog(row) {
 // screen calls saveRoomDialog needs a signed-in admin session for it
 // to actually succeed, same as it always would have going through
 // this same backend from the web app.
+//
+// One shared copy for every screen (see sharedResource.js).
+const dialogsResource = createSharedResource(async () => {
+  const data = await apiRequest("PlacardDialogs_API/getAll");
+  return data.dialogs.map(toFrontendDialog);
+});
+
+const NO_DIALOGS = [];
+
 export function usePlacardDialogs() {
-  const [docs, setDocs] = useState([]);
-
-  const refresh = useCallback(async () => {
-    const response = await fetch(`${API_BASE_URL}/PlacardDialogs_API/getAll`);
-    const data = await response.json();
-    if (data.success) {
-      setDocs(data.dialogs.map(toFrontendDialog));
-    }
-  }, []);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  const { data } = dialogsResource.useResource();
+  const docs = data || NO_DIALOGS;
 
   const getForRoom = useCallback(
     (roomName) => {
@@ -72,9 +65,6 @@ export function usePlacardDialogs() {
   const saveRoomDialog = useCallback(
     async (roomName, patch) => {
       const existing = getForRoom(roomName);
-      const token = await getToken();
-      const headers = { "Content-Type": "application/json" };
-      if (token) headers.Authorization = `Bearer ${token}`;
 
       const body = {};
       if (patch.roomName !== undefined) body.room_name = patch.roomName;
@@ -88,36 +78,28 @@ export function usePlacardDialogs() {
 
       let id;
       if (existing) {
-        const response = await fetch(`${API_BASE_URL}/PlacardDialogs_API/update/${existing.id}`, {
-          method: "PATCH",
-          headers,
-          body: JSON.stringify(body),
-        });
-        const data = await response.json();
-        if (!data.success) throw new Error(data.error || "Couldn't save room details.");
+        await apiRequest(`PlacardDialogs_API/update/${existing.id}`, { method: "PATCH", body, auth: true });
         id = existing.id;
       } else {
         const trimmedName = (patch.roomName || roomName).trim();
         const ocrTerm = trimmedName.toLowerCase().replace(/[^a-z0-9]/g, "");
-        const response = await fetch(`${API_BASE_URL}/PlacardDialogs_API/create`, {
+        const data = await apiRequest("PlacardDialogs_API/create", {
           method: "POST",
-          headers,
-          body: JSON.stringify({
+          auth: true,
+          body: {
             room_name: trimmedName,
             description: "",
             search_terms: ocrTerm ? [ocrTerm] : [],
             ...body,
-          }),
+          },
         });
-        const data = await response.json();
-        if (!data.success) throw new Error(data.error || "Couldn't save room details.");
         id = data.dialog.id;
       }
 
-      await refresh();
+      await dialogsResource.refresh();
       return id;
     },
-    [getForRoom, refresh]
+    [getForRoom]
   );
 
   return { getForRoom, saveRoomDialog };

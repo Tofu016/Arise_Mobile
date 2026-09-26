@@ -5,45 +5,23 @@ import { useRouter } from "expo-router";
 import { useAuth } from "../src/context/useAuth";
 import { usePublicNodes } from "../src/hooks/usePublicNodes";
 import { useSearchableRooms } from "../src/hooks/useSearchableRooms";
-import { useSecurePhotoPixels } from "../src/hooks/useSecurePhotoPixels";
-import { useCustomBuildingsVersion } from "../src/utils/buildingStore";
-import { allBuildings, buildingLabel, floorLabel, defaultHotspotAngle, markerTypeInfo } from "../src/utils/constants";
+import { usePanoramaImage } from "../src/hooks/usePanoramaImage";
+import { useBuildings } from "../src/utils/buildingStore";
+import { allBuildings, buildingOrder, buildingLabel, floorLabel, markerTypeInfo } from "../src/utils/constants";
 import { searchRooms, searchNodes } from "../src/utils/search";
 import { findPath } from "../src/utils/pathfinding";
+import { elevatorDestinationsFrom, elevatorRideBetween, arrivalYawFromLanding } from "../src/utils/elevators";
+import { pickDefaultNode, pickBuildingStart, walkEntryView, jumpEntryView } from "../src/utils/navigation";
 import MobileRoomSheet from "../src/components/MobileRoomSheet";
 import MobileDirectionsSheet from "../src/components/MobileDirectionsSheet";
+import ElevatorPicker from "../src/components/ElevatorPicker";
 import PanoramaViewer from "../src/components/PanoramaViewer";
 import Button from "../src/components/Button";
 import { colors, typography, fontFamily, radii, spacing, shadows } from "../src/theme";
 
-// Same logic as the web app's pickDefaultNode: prefer an entrance, in
-// building order (GD1, GD2, GD3, then any admin-added buildings), lowest
-// floor first.
-function pickDefaultNode(nodes) {
-  if (!nodes || nodes.length === 0) return null;
-  const entrances = nodes.filter((n) => n.type === "entrance");
-  if (entrances.length === 0) return nodes[0];
-  const order = allBuildings().map((b) => b.id);
-  return [...entrances].sort((a, b) => {
-    const ai = order.indexOf(a.building);
-    const bi = order.indexOf(b.building);
-    if (ai !== bi) return ai - bi;
-    return (a.floor ?? 0) - (b.floor ?? 0);
-  })[0];
-}
-
-// Same idea, scoped to one building — used by the Building selector to jump
-// straight to that building's first entrance when picked.
-function pickDefaultEntranceForBuilding(nodes, buildingId) {
-  if (!nodes) return null;
-  const inBuilding = nodes.filter((n) => n.type === "entrance" && n.building === buildingId);
-  if (inBuilding.length === 0) return null;
-  return [...inBuilding].sort((a, b) => (a.floor ?? 0) - (b.floor ?? 0))[0];
-}
-
 export default function MainScreen() {
   const router = useRouter();
-  useCustomBuildingsVersion(); // re-render when an admin adds/removes a building
+  const buildings = useBuildings(); // re-renders when the building list loads/changes
   const { user, profile, role, signOut } = useAuth();
   const { nodes, error: loadError } = usePublicNodes();
   // The status bar/notch takes up a different amount of space on every
@@ -71,13 +49,17 @@ export default function MainScreen() {
   const [buildingFilter, setBuildingFilter] = useState("all");
   const [currentId, setCurrentId] = useState(null);
   const [history, setHistory] = useState([]);
-  const [entryYaw, setEntryYaw] = useState(0);
+  // The view the next panorama opens facing — see utils/navigation.js.
+  const [entryView, setEntryView] = useState({ yaw: 0, pitch: 0 });
 
   // Land directly in the tour instead of an intermediate menu screen.
   useEffect(() => {
     if (nodes && currentId === null) {
-      const start = pickDefaultNode(nodes);
-      if (start) setCurrentId(start.id);
+      const start = pickDefaultNode(nodes, buildingOrder());
+      if (start) {
+        setCurrentId(start.id);
+        setEntryView(jumpEntryView(start));
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes]);
@@ -87,28 +69,51 @@ export default function MainScreen() {
     return nodes.find((n) => n.id === currentId) || null;
   }, [nodes, currentId]);
 
-  const { pixels, error: photoError } = useSecurePhotoPixels(current?.photo);
+  const { image: panorama, error: photoError } = usePanoramaImage(current?.photo);
 
-  // Same hotspot-position logic as web's MainPage.jsx — falls back to an
-  // evenly-spaced default angle for any neighbor that hasn't had its arrow
-  // manually positioned by an admin yet.
+  // One arrow per link out of the current node, placed where an admin put
+  // it, carrying the link's own arrival view (see utils/navigation.js).
   const hotspots = useMemo(() => {
     if (!current || !nodes) return [];
     const neighborIds = current.neighbors || [];
-    return neighborIds.map((nid, idx) => {
+    return neighborIds.map((nid) => {
       const target = nodes.find((n) => n.id === nid);
-      const angle = current.hotspots?.[nid] || defaultHotspotAngle(idx, neighborIds.length);
-      return { id: nid, name: target?.name || nid, ...angle };
+      // Every link has its own angle: node_neighbors.yaw/pitch are NOT NULL.
+      return { id: nid, name: target?.name || nid, ...current.hotspots[nid] };
     });
   }, [current, nodes]);
 
-  // Fixed point-of-interest markers (rooms/facilities/exits/hydrants) for
-  // the current node — same shape as web's, no processing needed.
+  // Fixed point-of-interest markers (rooms/facilities/exits/hydrants, and
+  // elevator landings) for the current node — same shape as web's.
   const markers = current?.markers || [];
   const [selectedMarker, setSelectedMarker] = useState(null);
+  const [elevatorPicker, setElevatorPicker] = useState(null);
+
+  // Tapping an elevator landing is like pressing the call button, as on
+  // web: with only one other floor it rides straight there, otherwise it
+  // asks which floor. Every other marker just shows its info banner.
   const handleMarkerTap = (markerId) => {
     const marker = markers.find((m) => m.id === markerId);
-    if (marker) setSelectedMarker(marker);
+    if (!marker) return;
+    if (marker.type === "elevator" && marker.elevatorId && current) {
+      const destinations = elevatorDestinationsFrom(nodes, current.id, marker.elevatorId);
+      if (destinations.length === 1) {
+        rideElevatorTo(destinations[0]);
+        return;
+      }
+      if (destinations.length > 1) {
+        setElevatorPicker({ label: marker.label, currentFloor: current.floor, destinations });
+        return;
+      }
+    }
+    setSelectedMarker(marker);
+  };
+
+  // A ride is a walk, not a jump: history is kept, so Back rides you back.
+  // You step out facing away from the doors, toward the floor.
+  const rideElevatorTo = (dest) => {
+    setElevatorPicker(null);
+    goTo(dest.node.id, { yaw: arrivalYawFromLanding(dest.marker) });
   };
   // Dismiss the info banner whenever navigating anywhere — it belongs to
   // whatever panorama was showing when it was tapped, not the next one.
@@ -116,40 +121,38 @@ export default function MainScreen() {
     setSelectedMarker(null);
   }, [currentId]);
 
-  // Walking via a hotspot tap — pushes history (so Back works) and starts
-  // the new panorama facing roughly the direction you were walking, same
-  // as web. Distinct from jumpToNode below (search results / room card),
-  // which is a fresh start with no history, matching web's same distinction.
-  const goTo = (id, angle) => {
+  // Walking via a hotspot — pushes history (so Back works) and opens the
+  // new panorama facing the way you walked (or the link's own default
+  // view), same as web. Distinct from jumpToNode below (search results /
+  // room card), which is a fresh start with no history.
+  const goTo = (id, hotspot) => {
     setHistory((h) => (currentId ? [...h, currentId] : h));
     setCurrentId(id);
-    setEntryYaw(angle?.yaw ?? 0);
+    setEntryView(walkEntryView(hotspot));
   };
 
   const goBack = () => {
-    setHistory((h) => {
-      if (h.length === 0) return h;
-      const next = [...h];
-      setCurrentId(next.pop());
-      setEntryYaw(0);
-      return next;
-    });
+    if (history.length === 0) return;
+    setCurrentId(history[history.length - 1]);
+    setHistory(history.slice(0, -1));
+    setEntryView({ yaw: 0, pitch: 0 });
   };
 
   const buildingOptions = useMemo(
     () => [{ id: "all", label: "All Buildings" }, ...allBuildings()],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [nodes]
+    [buildings]
   );
 
   const handleBuildingPick = (buildingId) => {
     setBuildingFilter(buildingId);
     setPanelMode(null);
     if (buildingId === "all") return;
-    const entrance = pickDefaultEntranceForBuilding(nodes, buildingId);
-    if (entrance) {
+    const start = pickBuildingStart(nodes, buildingId);
+    if (start) {
       setHistory([]);
-      setCurrentId(entrance.id);
+      setCurrentId(start.id);
+      setEntryView(jumpEntryView(start));
     }
   };
 
@@ -181,7 +184,7 @@ export default function MainScreen() {
   const jumpToNode = (id) => {
     setHistory([]);
     setCurrentId(id);
-    setEntryYaw(0);
+    setEntryView(jumpEntryView(nodes?.find((n) => n.id === id)));
     setSearchQuery("");
     closePanel();
   };
@@ -358,15 +361,23 @@ export default function MainScreen() {
     if (!directions?.path) return;
     const nextId = directions.path[directions.stepIndex + 1];
     if (!nextId) return;
-    // Deliberately setCurrentId directly, not jumpToNode — that clears
+    // A walk along the route's next link (or an elevator ride, when the
+    // route changes floor by elevator), not jumpToNode — that clears
     // search/closes the panel, and we want to stay in the directions view
     // while progressing through the route.
-    setCurrentId(nextId);
+    const hotspot = current?.hotspots?.[nextId];
+    const ride = !hotspot && nodes ? elevatorRideBetween(nodes, currentId, nextId) : null;
+    goTo(nextId, ride ? { yaw: arrivalYawFromLanding(ride.toMarker) } : hotspot);
   };
 
   const arrived = directions?.path && directions.stepIndex === directions.path.length - 1;
   const nextStopId = directions?.path?.[directions.stepIndex + 1] || null;
   const nextStopName = nextStopId ? (nodes?.find((n) => n.id === nextStopId)?.name || nextStopId) : null;
+  // The floor the route's next step rides to, when that step is an elevator.
+  const nextElevatorFloor =
+    nextStopId && currentId && !current?.hotspots?.[nextStopId] && nodes
+      ? elevatorRideBetween(nodes, currentId, nextStopId)?.toFloor ?? null
+      : null;
 
   // Room sheet's "Get Directions" now opens the real Directions sheet
   // instead of jumping directly. "360° View" still just jumps, matching
@@ -393,9 +404,9 @@ export default function MainScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* The real panorama photo, secured the same way as web (fetched via
-          the Storage SDK, not a public link) — drag-to-look and hotspots
-          arrive in the next Stage 4 checkpoints. */}
+      {/* The panorama itself — a sharp JPEG copy decoded natively by
+          expo-gl (see usePanoramaImage.js), with drag-to-look, hotspots
+          and markers. */}
       <View style={styles.panoramaPlaceholder}>
         {loadError ? (
           <Text style={styles.panoramaErrorText}>{loadError}</Text>
@@ -404,14 +415,15 @@ export default function MainScreen() {
         ) : current ? (
           <View style={styles.panoramaViewerWrap}>
             <PanoramaViewer
-              pixels={pixels}
+              image={panorama}
               hotspots={hotspots}
               markers={markers}
               onNavigate={goTo}
               onMarkerTap={handleMarkerTap}
-              entryYaw={entryYaw}
+              entryYaw={entryView.yaw}
+              entryPitch={entryView.pitch}
             />
-            {current.photo && !pixels && !photoError && (
+            {current.photo && !panorama && !photoError && (
               <View style={styles.panoramaDebugOverlay} pointerEvents="none">
                 <Text style={styles.panoramaPlaceholderText}>Loading photo…</Text>
               </View>
@@ -557,17 +569,6 @@ export default function MainScreen() {
                   </Text>
                 )}
                 <View style={styles.accountDivider} />
-                {/* TEMPORARY DIAGNOSTIC — isolated test of a friend's
-                    "see-through mask" portal technique against our own
-                    known-working AR portal, before deciding whether to
-                    adopt it. Remove once verified either way. */}
-                <Button
-                  label="🧪 See-Through Test"
-                  variant="outline"
-                  size="sm"
-                  onPress={() => router.push("/ar-portal-seethrough-test")}
-                  style={styles.accountBtnFull}
-                />
                 <Button
                   label="Sign out"
                   variant="outline"
@@ -668,9 +669,17 @@ export default function MainScreen() {
           onWalkNext={handleWalkToNextStop}
           arrived={arrived}
           nextStopName={nextStopName}
+          nextElevatorFloor={nextElevatorFloor}
           currentId={currentId}
         />
       )}
+
+      <ElevatorPicker
+        picker={elevatorPicker}
+        routeFloor={nextElevatorFloor}
+        onRide={rideElevatorTo}
+        onClose={() => setElevatorPicker(null)}
+      />
 
     </View>
   );

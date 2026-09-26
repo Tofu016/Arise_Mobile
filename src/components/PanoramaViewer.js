@@ -3,6 +3,7 @@ import { View, StyleSheet } from "react-native";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { markerTypeInfo } from "../utils/constants";
+import { reportMaxTextureSize } from "../hooks/usePanoramaImage";
 import { colors } from "../theme";
 
 const MARKER_RADIUS = 480; // just inside the 500-radius panorama sphere, so markers/hotspots sit in front of the image
@@ -35,61 +36,30 @@ function CameraRig({ rotationRef }) {
   return null;
 }
 
-function PanoramaSphere({ pixels }) {
-  // TEMPORARY diagnostic timing — logs when the JS-level DataTexture
-  // object is actually created (fast, just object construction) versus
-  // when the FIRST real GPU-rendered frame after that happens (this is
-  // what actually captures the expensive part: Three.js/expo-gl
-  // uploading the raw pixel data to the GPU, which happens inside their
-  // own internal render loop, not something we call and await directly).
-  // Remove the console.log + useFrame block below once the bottleneck
-  // is identified.
-  const tCreateStart = useRef(0);
-  const loggedFirstFrame = useRef(false);
-
+// The texture's "data" is { localUri } rather than pixel bytes: three.js
+// passes it through to gl.texSubImage2D unchanged, and expo-gl recognises
+// that shape and decodes the JPEG file natively (stb_image) straight into
+// the texture — no JS-side decode at all. width/height must be the file's
+// real size, since three.js allocates the GPU storage from them first.
+function PanoramaSphere({ image }) {
   const texture = useMemo(() => {
-    if (!pixels) return null;
-    tCreateStart.current = Date.now();
-    loggedFirstFrame.current = false;
-
-    // The actual gap this whole diagnostic pass exists to measure —
-    // compares against the shared timestamp useSecurePhotoPixels.js sets
-    // the moment its own decode finishes, right before calling
-    // setPixels(). If this number is genuinely large, the delay is
-    // happening somewhere in the React re-render chain between that
-    // state update and this component actually receiving the new
-    // pixels prop — not in decode, and not in this component's own
-    // texture creation or GPU render, both already confirmed fast.
-    if (global.__photoDecodedAt) {
-      console.log(`[render] gap from decode-finished to texture-creation-start: ${tCreateStart.current - global.__photoDecodedAt}ms`);
-    }
-
-    console.log(`[render] DataTexture creation start (${pixels.width}x${pixels.height})`);
-
-    const tex = new THREE.DataTexture(pixels.data, pixels.width, pixels.height, THREE.RGBAFormat);
+    if (!image) return null;
+    const tex = new THREE.DataTexture({ localUri: image.uri }, image.width, image.height, THREE.RGBAFormat);
     tex.generateMipmaps = false;
     tex.minFilter = THREE.LinearFilter;
     tex.magFilter = THREE.LinearFilter;
-    // Standard image decoders (jpeg-js included) produce rows top-to-bottom;
-    // THREE.DataTexture defaults flipY to false (unlike image-based
-    // textures, which default it to true) — set explicitly so the photo
-    // isn't upside-down. If it still looks flipped, this is the toggle.
+    // Decoded rows arrive top-to-bottom; THREE.DataTexture defaults flipY
+    // to false (unlike image-based textures, which default it to true), and
+    // expo-gl honours UNPACK_FLIP_Y for file uploads too — set explicitly so
+    // the photo isn't upside-down. If it ever looks flipped, this is the toggle.
     tex.flipY = true;
     tex.needsUpdate = true;
-
-    console.log(`[render] DataTexture JS object ready after ${Date.now() - tCreateStart.current}ms (GPU upload still pending)`);
     return tex;
-  }, [pixels]);
+  }, [image]);
 
-  // Fires on every rendered frame — logs only once per new texture, the
-  // first time it actually runs after a fresh DataTexture was created.
-  // This is the real "time until something is actually on screen" number.
-  useFrame(() => {
-    if (texture && !loggedFirstFrame.current) {
-      loggedFirstFrame.current = true;
-      console.log(`[render] first frame drawn ${Date.now() - tCreateStart.current}ms after texture creation started`);
-    }
-  });
+  // Three.js never frees a texture's GPU copy on its own — without this,
+  // every panorama visited stays in GPU memory for the whole session.
+  useEffect(() => () => texture?.dispose(), [texture]);
 
   if (!texture) return null;
 
@@ -153,11 +123,19 @@ function Marker({ marker, meshMapRef }) {
   );
 }
 
-export default function PanoramaViewer({ pixels, hotspots = [], markers = [], onNavigate, onMarkerTap, entryYaw = 0 }) {
+export default function PanoramaViewer({
+  image,
+  hotspots = [],
+  markers = [],
+  onNavigate,
+  onMarkerTap,
+  entryYaw = 0,
+  entryPitch = 0,
+}) {
   // A plain ref, not React state — deliberately avoids re-rendering the
   // component tree on every single drag frame. CameraRig above reads this
   // directly inside Three.js's own render loop.
-  const rotationRef = useRef({ yaw: entryYaw, pitch: 0 });
+  const rotationRef = useRef({ yaw: entryYaw, pitch: entryPitch });
   const startTouchRef = useRef({ x: 0, y: 0 });
   const startRotationRef = useRef({ yaw: 0, pitch: 0 });
   // id -> mesh, populated by each Hotspot/Marker's own ref callback.
@@ -170,14 +148,14 @@ export default function PanoramaViewer({ pixels, hotspots = [], markers = [], on
   const r3fStateRef = useRef(null);
 
   // Resets the view to face roughly the direction you were walking, every
-  // time a genuinely different panorama finishes loading (pixels' identity
+  // time a genuinely different panorama finishes loading (image's identity
   // changes on real navigation, but stays the same across unrelated
   // re-renders of this component) — otherwise the camera would just keep
   // whatever rotation was left over from the previous panorama.
   useEffect(() => {
-    rotationRef.current = { yaw: entryYaw, pitch: 0 };
+    rotationRef.current = { yaw: entryYaw, pitch: entryPitch };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pixels]);
+  }, [image]);
 
   // Uses React Native's OWN built-in touch responder system directly —
   // the same one @react-three/fiber's native Canvas already participates in
@@ -246,7 +224,9 @@ export default function PanoramaViewer({ pixels, hotspots = [], markers = [], on
     const hitObject = intersects[0].object;
     for (const [id, mesh] of hotspotMeshMapRef.current.entries()) {
       if (mesh === hitObject) {
-        onNavigate?.(id);
+        // The hotspot itself carries the angles the next panorama should
+        // open facing (its arrow's yaw, and any per-link default view).
+        onNavigate?.(id, hotspots.find((h) => h.id === id));
         return;
       }
     }
@@ -271,11 +251,14 @@ export default function PanoramaViewer({ pixels, hotspots = [], markers = [], on
         camera={{ position: [0, 0, 0.1], fov: 75 }}
         onCreated={(state) => {
           r3fStateRef.current = state;
+          // Lets usePanoramaImage avoid asking for a panorama wider than
+          // this GPU can hold as a single texture.
+          reportMaxTextureSize(state.gl.capabilities.maxTextureSize);
         }}
       >
         <CameraRig rotationRef={rotationRef} />
-        {pixels ? (
-          <PanoramaSphere pixels={pixels} />
+        {image ? (
+          <PanoramaSphere image={image} />
         ) : (
           <mesh scale={[-1, 1, 1]}>
             <sphereGeometry args={[500, 32, 32]} />

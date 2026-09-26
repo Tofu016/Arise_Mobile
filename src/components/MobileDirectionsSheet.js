@@ -24,6 +24,7 @@ export default function MobileDirectionsSheet({
   onWalkNext,
   arrived,
   nextStopName,
+  nextElevatorFloor = null,
   currentId,
 }) {
   const hasPath = !!directions.path;
@@ -111,7 +112,11 @@ export default function MobileDirectionsSheet({
               />
             ) : (
               <Button
-                label={`Walk to ${nextStopName}`}
+                label={
+                  nextElevatorFloor != null
+                    ? `🛗 Take the elevator to ${floorLabel(nextElevatorFloor)}`
+                    : `Walk to ${nextStopName}`
+                }
                 iconRight="→"
                 variant={isEmergency ? "danger" : "primary"}
                 onPress={onWalkNext}

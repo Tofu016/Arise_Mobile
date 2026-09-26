@@ -32,8 +32,8 @@ The runtime dependency tree that is compiled into the app is entirely permissive
 
 | License | Notable packages |
 |---|---|
-| MIT | react, react-native, expo + all `expo-*` modules, `@reactvision/react-viro` (ViroReact), `three`, `@react-three/fiber`, `expo-router`, `react-native-reanimated`, `react-native-gesture-handler`, `fuse.js`, `jpeg-js` |
-| Apache-2.0 | `firebase` / `@firebase/*`, `@infinitered/react-native-mlkit-*` |
+| MIT | react, react-native, expo + all `expo-*` modules, `@reactvision/react-viro` (ViroReact), `three`, `@react-three/fiber`, `expo-router`, `react-native-reanimated`, `react-native-gesture-handler`, `fuse.js` |
+| Apache-2.0 | `@infinitered/react-native-mlkit-*` |
 | BSD-3-Clause / BSD-2-Clause / ISC / 0BSD | assorted transitive utilities |
 
 No copyleft (GPL / LGPL / AGPL) or share-alike (CC-BY-SA) licensed code is

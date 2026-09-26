@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView, Image } from "react-native";
 import { buildingLabel, floorLabel } from "../utils/constants";
-import { useSecurePhotoDataUri } from "../hooks/useSecurePhotoDataUri";
+import { photoUrl } from "../api/client";
 import { colors, typography, radii, spacing } from "../theme";
 import BottomSheet from "./BottomSheet";
 import Button from "./Button";
@@ -11,9 +12,35 @@ import Button from "./Button";
 // different room springs it back to peek height (via BottomSheet's
 // `resetKey`).
 
+// Loaded straight from the serve URL — React Native's <Image> fetches,
+// decodes and caches it natively, WebP included, so there's no JS-side
+// download or base64 step. Keyed by photo by the caller, so the loading
+// state starts fresh for each new room.
+function RoomPhoto({ photo }) {
+  const [status, setStatus] = useState("loading"); // loading | loaded | error
+
+  return (
+    <View>
+      <Image
+        source={{ uri: photoUrl(photo) }}
+        style={styles.photo}
+        resizeMode="cover"
+        onLoad={() => setStatus("loaded")}
+        onError={() => setStatus("error")}
+      />
+      {status !== "loaded" && (
+        <View style={[styles.photo, styles.photoLoading, styles.photoOverlay]}>
+          <Text style={styles.photoLoadingText}>
+            {status === "error" ? "Couldn't load photo" : "Loading photo…"}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
 export default function MobileRoomSheet({ room, onClose, onGetDirections, onView360 }) {
   const { roomName, node, placard } = room;
-  const { uri: photoUri } = useSecurePhotoDataUri(placard?.photo);
 
   return (
     <BottomSheet onClose={onClose} resetKey={room}>
@@ -25,13 +52,7 @@ export default function MobileRoomSheet({ room, onClose, onGetDirections, onView
       <ScrollView style={styles.content} contentContainerStyle={styles.contentInner}>
         {placard?.photo && (
           <View style={styles.photoWrap}>
-            {photoUri ? (
-              <Image source={{ uri: photoUri }} style={styles.photo} resizeMode="cover" />
-            ) : (
-              <View style={[styles.photo, styles.photoLoading]}>
-                <Text style={styles.photoLoadingText}>Loading photo…</Text>
-              </View>
-            )}
+            <RoomPhoto key={placard.photo} photo={placard.photo} />
           </View>
         )}
 
@@ -90,6 +111,7 @@ const styles = StyleSheet.create({
   photo: { width: "100%", height: 160 },
   photoLoading: { backgroundColor: colors.surfaceSunken, alignItems: "center", justifyContent: "center" },
   photoLoadingText: { ...typography.caption },
+  photoOverlay: { position: "absolute", top: 0, left: 0 },
   titleRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: spacing.sm },
   title: { flex: 1, ...typography.h3, marginRight: spacing.md },
   closeX: { color: colors.textMuted, fontSize: 18, paddingHorizontal: spacing.xs },
