@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
+import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import {
@@ -16,9 +16,12 @@ import {
 } from "@reactvision/react-viro";
 import { usePublicNodes } from "../src/hooks/usePublicNodes";
 import { usePhotoFile } from "../src/hooks/usePhotoFile";
-import { colors, typography, radii, spacing } from "../src/theme";
+import { buildingLabel, floorLabel } from "../src/utils/constants";
+import { colors, typography, spacing } from "../src/theme";
 import BottomSheet from "../src/components/BottomSheet";
 import Button from "../src/components/Button";
+import ListRow from "../src/components/ListRow";
+import { ArCloseButton, ArStatusPill } from "../src/components/ArChrome";
 
 // Same physical door model, same confirmed-correct tuning as ar-portal.js.
 const PLACEMENT_DISTANCE_METERS = 2.7432;
@@ -65,7 +68,7 @@ ViroAnimations.registerAnimations({
 // as a prop — that data loads asynchronously, and a prop would freeze this
 // permanently with stale data if it wasn't ready at first mount (the same
 // bug ar-portal.js already hit once with photoUri).
-function ArViewerScene({ initialNodeId, onRegisterNavigate, onNodeChange }) {
+function ArViewerScene({ initialNodeId, onRegisterNavigate, onNodeChange, onPlaced }) {
   const { nodes } = usePublicNodes();
   const [viewNodeId, setViewNodeId] = useState(initialNodeId);
   const viewNode = nodes?.find((n) => n.id === viewNodeId);
@@ -111,6 +114,7 @@ function ArViewerScene({ initialNodeId, onRegisterNavigate, onNodeChange }) {
     ];
     setPlacedPosition(target);
     hasPlaced.current = true;
+    onPlaced?.(); // the screen drops its "hold your phone up" hint
   };
 
   return (
@@ -164,6 +168,9 @@ function ArViewerScene({ initialNodeId, onRegisterNavigate, onNodeChange }) {
   );
 }
 
+// Peek: just the spot's name showing.
+const PEEK_HEIGHT = 84;
+
 export default function ArViewerScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -172,6 +179,12 @@ export default function ArViewerScreen() {
 
   const navigateRef = useRef(null);
   const [displayNodeId, setDisplayNodeId] = useState(nodeId);
+  // Until the door is placed (AR tracking has settled), a hint says what to do.
+  const [placed, setPlaced] = useState(false);
+  // Header + list, measured, so the sheet fits them exactly.
+  const [headerHeight, setHeaderHeight] = useState(0);
+  const [listHeight, setListHeight] = useState(0);
+  const contentHeight = headerHeight && listHeight ? headerHeight + listHeight : undefined;
 
   const displayNode = nodes?.find((n) => n.id === displayNodeId);
   const neighbors = (displayNode?.neighbors || [])
@@ -202,31 +215,46 @@ export default function ArViewerScreen() {
                 navigateRef.current = fn;
               }}
               onNodeChange={setDisplayNodeId}
+              onPlaced={() => setPlaced(true)}
             />
           ),
         }}
         style={styles.flex}
       />
 
-      <View style={[styles.topBar, { top: insets.top + 12 }]}>
-        <Pressable style={styles.closeBtn} onPress={() => router.back()}>
-          <Text style={styles.closeBtnText}>✕</Text>
-        </Pressable>
-      </View>
+      <ArCloseButton top={insets.top + 12} onPress={() => router.back()} />
+      {!placed && <ArStatusPill style={{ top: insets.top + 64 }}>Hold your phone up and move it slowly while AR gets ready.</ArStatusPill>}
 
-      <BottomSheet>
-        <ScrollView style={styles.content} contentContainerStyle={styles.contentInner}>
+      {/* Where you are, and the spots you can walk to from here — sized to
+          fit, so it covers as little of the camera as possible. */}
+      <BottomSheet
+        snapPoints={[PEEK_HEIGHT, 0.5]}
+        initialSnap={1}
+        bottomOffset={insets.bottom + spacing.md}
+        topLimit={insets.top + 64}
+        fitContent
+        contentHeight={contentHeight}
+      >
+        <View style={styles.header} onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}>
           <Text style={styles.nodeTitle} numberOfLines={1}>
             {displayNode?.name || "…"}
           </Text>
-
+          {!!displayNode && (
+            <Text style={styles.nodeWhere}>
+              {buildingLabel(displayNode.building)} - {floorLabel(displayNode.floor)}
+            </Text>
+          )}
+        </View>
+        <ScrollView contentContainerStyle={styles.list} onContentSizeChange={(_, h) => setListHeight(h)}>
           <Text style={styles.sectionLabel}>Walk to</Text>
-          {neighbors.length === 0 && <Text style={styles.emptyText}>No connected nodes.</Text>}
+          {neighbors.length === 0 && <Text style={styles.emptyText}>Nowhere connected from here.</Text>}
           {neighbors.map((n) => (
-            <Pressable key={n.id} style={styles.neighborRow} onPress={() => handleNavigate(n.id)}>
-              <Text style={styles.neighborName}>{n.name}</Text>
-              <Text style={styles.neighborArrow}>→</Text>
-            </Pressable>
+            <ListRow
+              key={n.id}
+              title={n.name}
+              subtitle={`${buildingLabel(n.building)} - ${floorLabel(n.floor)}`}
+              onPress={() => handleNavigate(n.id)}
+            />
           ))}
         </ScrollView>
       </BottomSheet>
@@ -246,34 +274,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   errorText: { ...typography.body, textAlign: "center" },
-  topBar: { position: "absolute", left: 12 },
-  closeBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.overlaySurface,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  closeBtnText: { color: colors.textPrimary, fontSize: 16 },
 
-  content: { flex: 1 },
-  contentInner: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl },
-  nodeTitle: { ...typography.h3, marginBottom: spacing.xs },
-  sectionLabel: { ...typography.eyebrow, marginTop: spacing.md + 2, marginBottom: spacing.sm - 2 },
-  emptyText: { ...typography.bodySmall, color: colors.textMuted },
-  neighborRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: colors.surfaceSunken,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md + 2,
-    marginBottom: spacing.sm,
-  },
-  neighborName: { ...typography.bodySmall, color: colors.textPrimary, fontSize: 14 },
-  neighborArrow: { color: colors.primary, fontSize: 16, fontFamily: typography.h3.fontFamily },
+  header: { paddingHorizontal: spacing.xl, paddingTop: spacing.xs, paddingBottom: spacing.sm },
+  nodeTitle: { ...typography.h3 },
+  nodeWhere: { ...typography.sublabel, marginTop: 2 },
+  list: { paddingBottom: spacing.md },
+  sectionLabel: { ...typography.eyebrow, paddingHorizontal: spacing.xl, paddingTop: spacing.sm, paddingBottom: spacing.xs },
+  emptyText: { ...typography.bodySmall, color: colors.textMuted, paddingHorizontal: spacing.xl, paddingVertical: spacing.sm },
 });

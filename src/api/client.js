@@ -1,12 +1,10 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
+import { getApiBaseUrl, loadServerAddress } from "./serverAddress";
 
-// The one place the app learns where Arise_API lives and how to talk to it.
-//
-// EXPO_PUBLIC_API_BASE_URL, not a plain env var — Expo only inlines
-// environment variables prefixed exactly this way into the built app; a
-// bare API_BASE_URL would silently be undefined at runtime.
-export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost/Arise_API/index.php";
+// The one place the app talks to Arise_API. Where it lives comes from
+// serverAddress.js (.env's default, or a server picked on the Sign in
+// screen in development/preview builds), read at call time.
 
 const TOKEN_KEY = "authToken";
 
@@ -56,7 +54,7 @@ export async function clearToken() {
 // Photo_preview in Arise_API); width: its maximum width, one of the
 // server's allowed widths (1024, 2048, 4096) — 1024 when omitted.
 export function photoUrl(path, { jpeg = false, width } = {}) {
-  const url = `${API_BASE_URL}/IndoorUploads_API/serve?path=${encodeURIComponent(path)}`;
+  const url = `${getApiBaseUrl()}/IndoorUploads_API/serve?path=${encodeURIComponent(path)}`;
   if (!jpeg) return url;
   return width ? `${url}&format=jpeg&width=${width}` : `${url}&format=jpeg`;
 }
@@ -64,6 +62,7 @@ export function photoUrl(path, { jpeg = false, width } = {}) {
 // Calls an Arise_API endpoint ("Nodes_API/getAll") and returns the parsed
 // reply, or throws an ApiError. auth: true sends the stored token, if any.
 export async function apiRequest(endpoint, { method = "GET", body, auth = false, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+  await loadServerAddress(); // the saved server, before the very first call
   const headers = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (auth) {
@@ -77,7 +76,7 @@ export async function apiRequest(endpoint, { method = "GET", body, auth = false,
   let response;
   let text;
   try {
-    response = await fetch(`${API_BASE_URL}/${endpoint}`, {
+    response = await fetch(`${getApiBaseUrl()}/${endpoint}`, {
       method,
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,

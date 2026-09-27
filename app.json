@@ -9,6 +9,10 @@
     "icon": "./assets/icon.png",
     "android": {
       "package": "com.arise.campusnavigator",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      },
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
@@ -28,17 +32,9 @@
     "plugins": [
       "expo-router",
       [
-        "expo-font",
+        "expo-sensors",
         {
-          "fonts": [
-            "./assets/fonts/SourceSans3-Regular.ttf",
-            "./assets/fonts/SourceSans3-Medium.ttf",
-            "./assets/fonts/SourceSans3-SemiBold.ttf",
-            "./assets/fonts/Montserrat-SemiBold.ttf",
-            "./assets/fonts/Montserrat-Bold.ttf",
-            "./assets/fonts/Montserrat-ExtraBold.ttf",
-            "./assets/fonts/SourceSerif4-SemiBold.ttf"
-          ]
+          "motionPermission": "ARISE uses your phone's motion so you can look around the 360° tour by moving your phone."
         }
       ],
       [
@@ -66,8 +62,8 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#FFFFFF",
-          "image": "./assets/icon.png",
-          "imageWidth": 200
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 142
         }
       ],
       "expo-secure-store"
@@ -75,8 +71,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "0d0f3624-860b-4934-a7de-da04542bd454"
+        "projectId": "afd9a847-9505-479c-8a9c-91ef907ab963"
       }
-    }
+    },
+    "owner": "chxen"
   }
 }

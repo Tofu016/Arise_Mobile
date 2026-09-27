@@ -9,7 +9,10 @@ import { useSearchableRooms } from "../src/hooks/useSearchableRooms";
 import { matchRoomsFromOcr } from "../src/utils/ocrRoomMatch";
 import { reconstructVerticalText } from "../src/utils/verticalTextSort";
 import { buildingLabel, floorLabel } from "../src/utils/constants";
-import { colors, typography, fontFamily, radii, spacing, shadows } from "../src/theme";
+import { colors, typography, radii, spacing, shadows } from "../src/theme";
+import Button from "../src/components/Button";
+import ListRow from "../src/components/ListRow";
+import Icon from "../src/components/Icon";
 
 // Two distinct shapes rather than one compromise — the person picks which
 // one matches what they're looking at, so each style gets a reticle
@@ -134,64 +137,82 @@ export default function PlacardScannerScreen() {
   if (!permission.granted) {
     return (
       <View style={styles.center}>
-        <Text style={styles.permissionText}>
-          ARISE needs camera access to scan room placards.
-        </Text>
-        <Pressable style={styles.permissionBtn} onPress={requestPermission}>
-          <Text style={styles.permissionBtnText}>Grant Camera Access</Text>
-        </Pressable>
+        <Text style={styles.permissionText}>ARISE needs camera access to scan room placards.</Text>
+        <Button label="Grant camera access" onPress={requestPermission} />
       </View>
     );
   }
+
+  const bracket = { width: BRACKET, height: BRACKET, position: "absolute" };
 
   return (
     <View style={styles.flex}>
       <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
 
+      {/* The brand board's reticle: four rounded corner brackets. */}
       <View
         pointerEvents="none"
-        style={[
-          styles.reticle,
-          { left: reticleLeft, top: reticleTop, width: reticleWidth, height: reticleHeight },
-        ]}
-      />
-
-      <View style={[styles.topBar, { top: insets.top + 12 }]}>
-        <Pressable style={styles.closeBtn} onPress={() => router.back()}>
-          <Text style={styles.closeBtnText}>✕</Text>
-        </Pressable>
-
-        {phase === "capture" && (
-          <View style={styles.reticleToggle}>
-            <Pressable
-              style={[styles.reticleToggleOption, reticleMode === "horizontal" && styles.reticleToggleOptionActive]}
-              onPress={() => setReticleMode("horizontal")}
-            >
-              <Text
-                style={[styles.reticleToggleText, reticleMode === "horizontal" && styles.reticleToggleTextActive]}
-              >
-                ↔ Horizontal
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[styles.reticleToggleOption, reticleMode === "vertical" && styles.reticleToggleOptionActive]}
-              onPress={() => setReticleMode("vertical")}
-            >
-              <Text style={[styles.reticleToggleText, reticleMode === "vertical" && styles.reticleToggleTextActive]}>
-                ↕ Vertical
-              </Text>
-            </Pressable>
-          </View>
-        )}
+        style={{ position: "absolute", left: reticleLeft, top: reticleTop, width: reticleWidth, height: reticleHeight }}
+      >
+        <View style={[bracket, styles.cornerTL]} />
+        <View style={[bracket, styles.cornerTR]} />
+        <View style={[bracket, styles.cornerBL]} />
+        <View style={[bracket, styles.cornerBR]} />
       </View>
 
-      <View style={[styles.bottomBar, { bottom: insets.bottom + 24 }]}>
+      <Pressable
+        style={({ pressed }) => [styles.roundBtn, { top: insets.top + 14, left: spacing.lg }, pressed && styles.roundBtnPressed]}
+        onPress={() => router.back()}
+        accessibilityLabel="Close scanner"
+        hitSlop={6}
+      >
+        <Icon name="terminate" size={17} color={colors.textSecondary} />
+      </Pressable>
+
+      <View style={[styles.bottomArea, { bottom: insets.bottom + 24 }]}>
         {phase === "capture" && (
           <>
-            <Text style={styles.instructionText}>Position the placard inside the box.</Text>
-            <Pressable style={styles.captureBtn} onPress={handleCapture}>
-              <Text style={styles.captureBtnText}>SCAN PLACARD</Text>
-            </Pressable>
+            <Text style={styles.instructionText}>Fit the placard inside the brackets</Text>
+            <View style={styles.controls}>
+              <Pressable
+                onPress={handleCapture}
+                accessibilityLabel="Scan placard"
+                style={({ pressed }) => [styles.captureOuter, pressed && styles.captureOuterPressed]}
+              >
+                <View style={styles.captureInner} />
+              </Pressable>
+
+              <Pressable
+                onPress={() => router.navigate({ pathname: "/", params: { panel: "search" } })}
+                accessibilityLabel="Search instead"
+                style={({ pressed }) => [styles.searchCircle, pressed && styles.roundBtnPressed]}
+              >
+                <Icon name="search" size={18} color={colors.textSecondary} />
+              </Pressable>
+
+              {/* Landscape = a normal single-line placard; portrait = a
+                  stack of individual letters (see RETICLE_CONFIGS). */}
+              <View style={styles.orientation}>
+                {[
+                  ["horizontal", "scanLandscape", "Scan in landscape"],
+                  ["vertical", "scanPortrait", "Scan in portrait"],
+                ].map(([mode, icon, label]) => (
+                  <Pressable
+                    key={mode}
+                    onPress={() => setReticleMode(mode)}
+                    accessibilityLabel={label}
+                    accessibilityState={{ selected: reticleMode === mode }}
+                    style={[styles.orientationOption, reticleMode === mode && styles.orientationOptionActive]}
+                  >
+                    <Icon
+                      name={icon}
+                      size={18}
+                      color={reticleMode === mode ? colors.textOnPrimary : colors.textSecondary}
+                    />
+                  </Pressable>
+                ))}
+              </View>
+            </View>
           </>
         )}
 
@@ -203,87 +224,85 @@ export default function PlacardScannerScreen() {
         )}
 
         {phase === "matched" && matchedRoom && (
-          <View style={styles.resultCard}>
-            <Text style={styles.resultLabel}>Room found</Text>
-            <Text style={styles.matchedName}>{matchedRoom.roomName}</Text>
-            {matchedRoom.placard?.use && (
-              <Text style={styles.matchedSub}>{matchedRoom.placard.use}</Text>
-            )}
-            <Text style={styles.matchedSub}>
-              {buildingLabel(matchedRoom.node.building)} · {floorLabel(matchedRoom.node.floor)}
+          <View style={styles.card}>
+            <Text style={styles.foundLabel}>Room found</Text>
+            <Text style={styles.foundName}>{matchedRoom.roomName}</Text>
+            <Text style={styles.foundWhere}>
+              {buildingLabel(matchedRoom.node.building)} {floorLabel(matchedRoom.node.floor)}
             </Text>
-            <Pressable
-              style={styles.captureBtn}
-              onPress={() =>
-                // replace, not push — the scanner's camera needs to be
-                // fully unmounted (releasing the hardware) before the AR
-                // portal's own camera session starts. A plain push() keeps
-                // this screen mounted in the background (for instant "back"
-                // navigation), which left two things fighting over the same
-                // camera hardware — the likely cause of a silent crash with
-                // no error log right as the AR camera session started.
-                router.replace({
-                  pathname: "/ar-portal",
-                  params: { nodeId: matchedRoom.node.id, roomName: matchedRoom.roomName },
-                })
-              }
-            >
-              <Text style={styles.captureBtnText}>VIEW IN AR</Text>
-            </Pressable>
-            <Pressable style={styles.scanAnotherBtn} onPress={handleRetry}>
-              <Text style={styles.scanAnotherBtnText}>SCAN ANOTHER</Text>
-            </Pressable>
+            <View style={styles.choiceRow}>
+              <Pressable
+                style={({ pressed }) => [styles.choice, styles.choicePrimary, pressed && styles.choicePrimaryPressed]}
+                onPress={() =>
+                  // replace, not push — the scanner's camera needs to be
+                  // fully unmounted (releasing the hardware) before the AR
+                  // portal's own camera session starts. A plain push() keeps
+                  // this screen mounted in the background (for instant "back"
+                  // navigation), which left two things fighting over the same
+                  // camera hardware — the likely cause of a silent crash with
+                  // no error log right as the AR camera session started.
+                  router.replace({
+                    pathname: "/ar-portal",
+                    params: { nodeId: matchedRoom.node.id, roomName: matchedRoom.roomName },
+                  })
+                }
+              >
+                <Text style={[styles.choiceText, styles.choiceTextPrimary]}>View in AR</Text>
+                <Icon name="arView" size={26} color={colors.textOnPrimary} />
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.choice, styles.choiceOutline, pressed && styles.choiceOutlinePressed]}
+                onPress={handleRetry}
+              >
+                <Text style={styles.choiceText}>Scan another</Text>
+                <Icon name="scanCode" size={26} color={colors.textSecondary} />
+              </Pressable>
+            </View>
           </View>
         )}
 
         {phase === "suggestions" && (
-          <View style={styles.resultCard}>
-            <Text style={styles.resultLabel}>Did you mean…</Text>
-            <Text style={styles.recognizedHint} numberOfLines={1}>
+          <View style={[styles.card, styles.cardList]}>
+            <Text style={[styles.foundLabel, styles.cardPad]}>Did you mean…</Text>
+            <Text style={[styles.recognizedHint, styles.cardPad]} numberOfLines={1}>
               Read: "{recognizedText || "(no text recognized)"}"
             </Text>
             {suggestions.map((m) => (
-              <Pressable
+              <ListRow
                 key={m.room.roomName}
-                style={styles.suggestionRow}
+                title={m.room.roomName}
+                subtitle={`${buildingLabel(m.room.node.building)} - ${floorLabel(m.room.node.floor)}`}
                 onPress={() => handleSelectSuggestion(m.room)}
-              >
-                <Text style={styles.suggestionName}>{m.room.roomName}</Text>
-                <Text style={styles.suggestionSub}>
-                  {buildingLabel(m.room.node.building)} · {floorLabel(m.room.node.floor)}
-                </Text>
-              </Pressable>
+              />
             ))}
-            <Pressable style={styles.captureBtn} onPress={handleRetry}>
-              <Text style={styles.captureBtnText}>SCAN AGAIN</Text>
-            </Pressable>
+            <Button label="Scan again" icon="scanCode" onPress={handleRetry} style={styles.cardButton} />
           </View>
         )}
 
         {phase === "no-match" && (
-          <View style={styles.resultCard}>
+          <View style={styles.card}>
             <Text style={styles.recognizedHint} numberOfLines={2}>
               Read: "{recognizedText || "(no text recognized)"}"
             </Text>
             <Text style={styles.errorText}>No matching room found — try repositioning the placard.</Text>
-            <Pressable style={styles.captureBtn} onPress={handleRetry}>
-              <Text style={styles.captureBtnText}>SCAN AGAIN</Text>
-            </Pressable>
+            <Button label="Scan again" icon="scanCode" onPress={handleRetry} style={styles.cardButtonFull} />
           </View>
         )}
 
         {phase === "error" && (
-          <View style={styles.resultCard}>
+          <View style={styles.card}>
             <Text style={styles.errorText}>{errorMessage}</Text>
-            <Pressable style={styles.captureBtn} onPress={handleRetry}>
-              <Text style={styles.captureBtnText}>TRY AGAIN</Text>
-            </Pressable>
+            <Button label="Try again" onPress={handleRetry} style={styles.cardButtonFull} />
           </View>
         )}
       </View>
     </View>
   );
 }
+
+const BRACKET = 34;
+const BRACKET_WIDTH = 5;
+const BRACKET_COLOR = "rgba(255,255,255,0.92)";
 
 const styles = StyleSheet.create({
   // Stays black — this sits behind the live camera feed for the brief
@@ -298,118 +317,115 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   permissionText: { ...typography.body, textAlign: "center" },
-  permissionBtn: {
-    backgroundColor: colors.primary,
-    borderRadius: radii.sm,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.xl,
-  },
-  permissionBtnText: { ...typography.button, fontSize: 14, color: colors.textOnPrimary },
-  reticle: {
+
+  cornerTL: { top: 0, left: 0, borderTopWidth: BRACKET_WIDTH, borderLeftWidth: BRACKET_WIDTH, borderColor: BRACKET_COLOR, borderTopLeftRadius: 16 },
+  cornerTR: { top: 0, right: 0, borderTopWidth: BRACKET_WIDTH, borderRightWidth: BRACKET_WIDTH, borderColor: BRACKET_COLOR, borderTopRightRadius: 16 },
+  cornerBL: { bottom: 0, left: 0, borderBottomWidth: BRACKET_WIDTH, borderLeftWidth: BRACKET_WIDTH, borderColor: BRACKET_COLOR, borderBottomLeftRadius: 16 },
+  cornerBR: { bottom: 0, right: 0, borderBottomWidth: BRACKET_WIDTH, borderRightWidth: BRACKET_WIDTH, borderColor: BRACKET_COLOR, borderBottomRightRadius: 16 },
+
+  roundBtn: {
     position: "absolute",
-    borderWidth: 2,
-    borderColor: colors.primary,
-    borderRadius: radii.lg,
-    backgroundColor: "rgba(161,33,36,0.12)", // translucent maroon wash over the camera
-  },
-  topBar: {
-    position: "absolute",
-    left: 12,
-    right: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  closeBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.overlaySurface,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
-    ...shadows.floating,
-  },
-  closeBtnText: { color: colors.textPrimary, fontSize: 16 },
-  reticleToggle: {
-    flexDirection: "row",
     backgroundColor: colors.overlaySurface,
-    borderRadius: radii.pill,
-    padding: 3,
-    gap: 2,
     ...shadows.floating,
   },
-  reticleToggleOption: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radii.pill,
-  },
-  reticleToggleOptionActive: { backgroundColor: colors.primary },
-  reticleToggleText: { fontFamily: fontFamily.displaySemiBold, fontSize: 12, color: colors.textMuted },
-  reticleToggleTextActive: { color: colors.textOnPrimary },
-  bottomBar: { position: "absolute", left: 20, right: 20, alignItems: "center", gap: spacing.md + 2 },
+  roundBtnPressed: { backgroundColor: colors.iconButton },
+
+  bottomArea: { position: "absolute", left: spacing.lg, right: spacing.lg, alignItems: "center", gap: spacing.lg },
   instructionText: {
-    ...typography.bodySmall,
-    color: colors.textPrimary,
-    textAlign: "center",
+    ...typography.sublabel,
+    color: colors.textSecondary,
     backgroundColor: colors.overlaySurface,
     borderRadius: radii.pill,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.lg,
     overflow: "hidden",
+  },
+  controls: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.md,
+  },
+  captureOuter: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.9)",
     ...shadows.floating,
   },
-  captureBtn: {
-    backgroundColor: colors.primary,
-    borderRadius: radii.pill,
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.xxxl,
+  captureOuterPressed: { backgroundColor: colors.iconButton },
+  captureInner: { width: 54, height: 54, borderRadius: 27, backgroundColor: colors.primary },
+  searchCircle: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.overlaySurface,
+    borderWidth: 3,
+    borderColor: colors.surfaceSunken,
   },
-  captureBtnText: { ...typography.button, fontSize: 14, color: colors.textOnPrimary },
-  scanAnotherBtn: {
-    borderWidth: 1,
-    borderColor: colors.border,
+  orientation: {
+    flexDirection: "row",
+    backgroundColor: colors.overlaySurface,
     borderRadius: radii.pill,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.xxl,
-    backgroundColor: colors.surface,
+    padding: 4,
+    gap: 2,
   },
-  scanAnotherBtnText: { ...typography.button, fontSize: 13, color: colors.textMuted },
+  orientationOption: { width: 48, height: 40, borderRadius: radii.pill, alignItems: "center", justifyContent: "center" },
+  orientationOptionActive: { backgroundColor: colors.gray700 },
+
   processingPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.md - 2,
+    gap: spacing.md,
     backgroundColor: colors.overlaySurface,
     borderRadius: radii.pill,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.xl,
     ...shadows.floating,
   },
-  processingText: { ...typography.bodySmall, color: colors.textPrimary },
-  resultCard: {
+  processingText: { ...typography.label, color: colors.textPrimary },
+
+  // The brand board's "Room found" card.
+  card: {
     width: "100%",
     backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.lg,
-    padding: spacing.lg,
-    alignItems: "center",
-    gap: spacing.md - 2,
+    borderRadius: radii.xl,
+    padding: spacing.xl,
+    gap: spacing.xs,
     ...shadows.floating,
   },
-  resultLabel: { ...typography.eyebrow },
-  recognizedHint: { ...typography.caption, fontStyle: "italic", textAlign: "center" },
-  matchedName: { ...typography.h2, textAlign: "center" },
-  matchedSub: { ...typography.bodySmall, color: colors.textMuted, textAlign: "center" },
-  suggestionRow: {
-    width: "100%",
-    backgroundColor: colors.surfaceSunken,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    paddingVertical: spacing.md - 2,
-    paddingHorizontal: spacing.md,
+  cardList: { paddingHorizontal: 0 },
+  cardPad: { paddingHorizontal: spacing.xl },
+  foundLabel: { ...typography.sublabel, color: colors.primary },
+  foundName: { ...typography.h2 },
+  foundWhere: { ...typography.sublabel, color: colors.textSecondary, marginBottom: spacing.md },
+  choiceRow: { flexDirection: "row", gap: spacing.md },
+  choice: {
+    flex: 1,
+    height: 104,
+    borderRadius: radii.lg,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.md,
   },
-  suggestionName: { ...typography.bodySmall, color: colors.textPrimary, fontSize: 14 },
-  suggestionSub: { ...typography.caption, marginTop: 2 },
-  errorText: { ...typography.bodySmall, color: colors.danger, textAlign: "center" },
+  choicePrimary: { backgroundColor: colors.primaryButton },
+  choicePrimaryPressed: { backgroundColor: colors.primaryPressed },
+  choiceOutline: { backgroundColor: colors.surface, borderWidth: 2, borderColor: colors.iconButton },
+  choiceOutlinePressed: { backgroundColor: colors.surfaceSunken },
+  choiceText: { ...typography.button, color: colors.textSecondary },
+  choiceTextPrimary: { color: colors.textOnPrimary },
+  cardButton: { marginTop: spacing.md, marginHorizontal: spacing.xl },
+  cardButtonFull: { marginTop: spacing.md, alignSelf: "stretch" },
+  recognizedHint: { ...typography.caption, fontStyle: "italic" },
+  errorText: { ...typography.bodySmall, color: colors.danger },
 });

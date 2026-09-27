@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import {
@@ -16,8 +16,9 @@ import {
 } from "@reactvision/react-viro";
 import { usePlacardDialogs } from "../src/hooks/usePlacardDialogs";
 import { usePhotoFile } from "../src/hooks/usePhotoFile";
-import { colors, typography, radii, spacing, shadows } from "../src/theme";
+import { colors, typography, spacing } from "../src/theme";
 import Button from "../src/components/Button";
+import { ArCloseButton, ArStatusPill, ArTitlePill } from "../src/components/ArChrome";
 
 // ViroReact works in meters, not feet — 9 feet is roughly 2.7432 meters.
 // Increased from the original 5ft (1.524m) — confirmed working at this
@@ -93,7 +94,7 @@ ViroAnimations.registerAnimations({
 // with that initial null even after the real value arrived in the parent.
 // roomName itself is safe to pass as a prop — it's a static string for the
 // lifetime of this screen, not something that changes after mount.
-function ArScene({ roomName }) {
+function ArScene({ roomName, onPlaced }) {
   const { getForRoom } = usePlacardDialogs();
   const placard = getForRoom(roomName);
   const { uri: photoUri } = usePhotoFile(placard?.photo360);
@@ -145,6 +146,7 @@ function ArScene({ roomName }) {
     ];
     setPlacedPosition(target);
     hasPlaced.current = true; // locks in — later transform updates are ignored
+    onPlaced?.(); // the screen drops its "hold your phone up" hint
   };
 
   return (
@@ -235,6 +237,8 @@ export default function ArPortalScreen() {
   // for a room an admin just hasn't added a photo to yet.
   const placardHasNoPhoto = Boolean(placard && !placard.photo360);
   const { uri: photoUri, error: photoError } = usePhotoFile(placard?.photo360);
+  // Until the door is placed (AR tracking has settled), a hint says what to do.
+  const [placed, setPlaced] = useState(false);
 
   // No room name at all — someone navigated here directly rather than
   // through the scanner's real flow. Shown instead of silently rendering an
@@ -250,36 +254,31 @@ export default function ArPortalScreen() {
 
   return (
     <View style={styles.flex}>
-      <ViroARSceneNavigator initialScene={{ scene: () => <ArScene roomName={roomName} /> }} style={styles.flex} />
+      <ViroARSceneNavigator
+        initialScene={{ scene: () => <ArScene roomName={roomName} onPlaced={() => setPlaced(true)} /> }}
+        style={styles.flex}
+      />
 
-      <View style={[styles.topBar, { top: insets.top + 12 }]}>
-        <Pressable style={styles.closeBtn} onPress={() => router.back()}>
-          <Text style={styles.closeBtnText}>✕</Text>
-        </Pressable>
-        {roomName ? (
-          <View style={styles.roomNamePill}>
-            <Text style={styles.roomNameText} numberOfLines={1}>{roomName}</Text>
-          </View>
-        ) : null}
-      </View>
+      <ArCloseButton top={insets.top + 12} onPress={() => router.back()} />
+      <ArTitlePill top={insets.top + 12}>{roomName}</ArTitlePill>
+      {!placed && !photoError && !placardHasNoPhoto && (
+        <ArStatusPill style={{ top: insets.top + 64 }}>Hold your phone up and move it slowly while AR gets ready.</ArStatusPill>
+      )}
 
       {!photoUri && !photoError && !placardHasNoPhoto && (
-        <View style={styles.loadingPill}>
-          <ActivityIndicator color={colors.primary} />
-          <Text style={styles.loadingText}>Preparing AR preview…</Text>
-        </View>
+        <ArStatusPill tone="loading" style={{ bottom: insets.bottom + 40 }}>
+          Preparing the room's 360° view…
+        </ArStatusPill>
       )}
       {photoError && (
-        <View style={styles.loadingPill}>
-          <Text style={styles.errorTextSmall}>{photoError}</Text>
-        </View>
+        <ArStatusPill tone="error" style={{ bottom: insets.bottom + 40 }}>
+          {photoError}
+        </ArStatusPill>
       )}
       {placardHasNoPhoto && !photoError && (
-        <View style={styles.loadingPill}>
-          <Text style={styles.errorTextSmall}>
-            This room doesn't have a photo yet — an admin needs to add one via Room Edit.
-          </Text>
-        </View>
+        <ArStatusPill tone="error" style={{ bottom: insets.bottom + 40 }}>
+          This room doesn't have a 360° photo yet. An admin can add one in Room Edit.
+        </ArStatusPill>
       )}
     </View>
   );
@@ -297,48 +296,4 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   errorText: { ...typography.body, textAlign: "center" },
-  errorTextSmall: { ...typography.bodySmall, color: colors.danger, textAlign: "center" },
-  topBar: {
-    position: "absolute",
-    left: 12,
-    right: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md - 2,
-  },
-  closeBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.overlaySurface,
-    alignItems: "center",
-    justifyContent: "center",
-    ...shadows.floating,
-  },
-  closeBtnText: { color: colors.textPrimary, fontSize: 16 },
-  roomNamePill: {
-    flex: 1,
-    backgroundColor: colors.overlaySurface,
-    borderRadius: radii.pill,
-    paddingVertical: spacing.md - 2,
-    paddingHorizontal: spacing.lg,
-    ...shadows.floating,
-  },
-  roomNameText: { ...typography.bodySmall, color: colors.textPrimary, fontSize: 14 },
-  loadingPill: {
-    position: "absolute",
-    bottom: 40,
-    left: 20,
-    right: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.md - 2,
-    backgroundColor: colors.overlaySurface,
-    borderRadius: radii.pill,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.xl,
-    ...shadows.floating,
-  },
-  loadingText: { ...typography.bodySmall, color: colors.textPrimary },
 });

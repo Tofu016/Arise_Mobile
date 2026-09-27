@@ -1,7 +1,8 @@
 import { View, Text, StyleSheet } from "react-native";
-import { Link } from "expo-router";
 import { colors, typography, radii, spacing } from "../src/theme";
 import ScreenContainer from "../src/components/ScreenContainer";
+import Icon from "../src/components/Icon";
+import { AuthHeader, AuthLinks } from "../src/components/AuthParts";
 
 // Deliberately not a self-service lookup — same reasoning as web's version:
 // letting someone submit a name/detail and get back "here's the registered
@@ -9,52 +10,78 @@ import ScreenContainer from "../src/components/ScreenContainer";
 // separate recovery identifier at registration anyway (the @sdca.edu.ph
 // email effectively *is* the identity here). An admin looking someone up by
 // name in the Users panel is the safe equivalent.
+
+const TIPS = [
+  "Check for a welcome or approval email from ARISE in your school inbox.",
+  "Try the most likely variation of your name, e.g. firstname.lastname@sdca.edu.ph.",
+  "Check your school's webmail or portal for your official address.",
+];
+
 export default function ForgotEmailScreen() {
   return (
     <ScreenContainer>
-      <Text style={styles.title}>Forgot your email?</Text>
+      <AuthHeader
+        icon="email"
+        title="Forgot your email?"
+        subtitle="Accounts here use your own @sdca.edu.ph email; there's no separate username to look up."
+      />
 
-      <Text style={styles.paragraph}>
-        Accounts here are registered with your own <Text style={styles.bold}>@sdca.edu.ph</Text> email
-        — there's no separate username to look up. A few things that usually help:
-      </Text>
+      <Text style={styles.sectionLabel}>A few things that usually help</Text>
+      <View style={styles.tips}>
+        {TIPS.map((tip, i) => (
+          <View key={i} style={styles.tip}>
+            <View style={styles.tipNumber}>
+              <Text style={styles.tipNumberText}>{i + 1}</Text>
+            </View>
+            <Text style={styles.tipText}>{tip}</Text>
+          </View>
+        ))}
+      </View>
 
-      <View style={styles.list}>
-        <Text style={styles.listItem}>• Check for a welcome or approval email from ARISE in your school inbox.</Text>
-        <Text style={styles.listItem}>
-          • Try the most likely variation of your name — e.g. <Text style={styles.code}>firstname.lastname@sdca.edu.ph</Text>.
+      <View style={styles.stuck}>
+        <Icon name="person" size={15} color={colors.textMuted} />
+        <Text style={styles.stuckText}>
+          <Text style={styles.stuckStrong}>Still stuck? </Text>
+          An administrator can look your account up by name in the admin Users panel. Reach out to one directly,
+          or contact your school's IT or registrar office if you're not sure who that is.
         </Text>
-        <Text style={styles.listItem}>• Check your school's webmail/portal for your official assigned address.</Text>
       </View>
 
-      <Text style={styles.paragraph}>
-        Still stuck? An administrator can look your account up by name from the admin Users
-        panel — reach out to one directly, or contact your school's IT/registrar office if
-        you're not sure who that is.
-      </Text>
-
-      <View style={styles.linksRow}>
-        <Link href="/login" style={styles.link}>Back to sign in</Link>
-        <Text style={styles.linkSep}> · </Text>
-        <Link href="/forgot-password" style={styles.link}>Forgot password?</Link>
-      </View>
+      <AuthLinks
+        items={[
+          { href: "/login", label: "Back to sign in" },
+          "·",
+          { href: "/forgot-password", label: "Forgot password?" },
+        ]}
+        style={styles.links}
+      />
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  title: { ...typography.h2, marginBottom: spacing.lg, textAlign: "center" },
-  paragraph: { ...typography.body, marginBottom: spacing.md + 2 },
-  bold: { ...typography.bodySemiBold },
-  code: {
-    fontFamily: typography.caption.fontFamily,
-    color: colors.textPrimary,
-    backgroundColor: colors.surfaceSunken,
-    borderRadius: radii.sm,
+  sectionLabel: { ...typography.eyebrow, marginBottom: spacing.sm, marginLeft: spacing.xs },
+  tips: {
+    gap: spacing.md,
+    padding: spacing.lg,
+    borderRadius: radii.lg,
+    backgroundColor: colors.surfaceField,
+    marginBottom: spacing.lg,
   },
-  list: { marginBottom: spacing.md + 2, gap: spacing.sm },
-  listItem: { ...typography.body, marginBottom: 0 },
-  linksRow: { flexDirection: "row", justifyContent: "center", marginTop: spacing.md },
-  link: { ...typography.bodySmall, color: colors.textLink },
-  linkSep: { ...typography.bodySmall, color: colors.textSubtle },
+  tip: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
+  tipNumber: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primary,
+    marginTop: 1,
+  },
+  tipNumberText: { ...typography.label, fontSize: 11, lineHeight: 14, letterSpacing: 0, color: colors.textOnPrimary },
+  tipText: { ...typography.bodySmall, flex: 1, color: colors.textPrimary },
+  stuck: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md, paddingHorizontal: spacing.xs },
+  stuckText: { ...typography.bodySmall, flex: 1, color: colors.textMuted },
+  stuckStrong: { ...typography.bodySemiBold, fontSize: 12.5, color: colors.textPrimary },
+  links: { marginTop: spacing.xl },
 });

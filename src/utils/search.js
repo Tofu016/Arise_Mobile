@@ -54,3 +54,44 @@ export function searchRooms(query, searchableRooms) {
 
   return [...exact, ...partial, ...textMatch].slice(0, 8);
 }
+
+// Case/space/punctuation-insensitive form of a name, as web's fuzzy.js
+// normalize: "Main Entrance", "main-entrance" and "MAINENTRANCE" match.
+function normalizeName(text) {
+  return String(text ?? "")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+// The room (with details — see useSearchableRooms) a "room" marker in a
+// panorama stands for, or undefined when it has none, so its tap has
+// nothing to open.
+//   1. the marker's label is a room's name — web's only rule;
+//   2. otherwise — unless the label is one of its node's rooms that simply
+//      has no details — among the rooms that node serves: one whose name
+//      contains the label or the other way round ("Canteen" on a node
+//      serving "Cafeteria/Canteen");
+//   3. otherwise, if that node serves exactly one room with details, that
+//      one ("Library" on the node serving "DLRC Digital Campus Site").
+export function findRoomForMarker(marker, searchableRooms, node) {
+  const key = normalizeName(marker.label);
+  const exact = key && searchableRooms.find((r) => normalizeName(r.roomName) === key);
+  if (exact) return exact;
+  if (!node) return undefined;
+
+  const served = new Set((node.rooms || []).map(normalizeName));
+  // The label names one of this node's rooms, just one without details
+  // ("IMAC Laboratory 2" beside a detailed "IMAC Laboratory 1"): nothing.
+  if (served.has(key)) return undefined;
+  const candidates = searchableRooms.filter((r) => served.has(normalizeName(r.roomName)));
+  if (key) {
+    const partial = candidates.find((r) => {
+      const name = normalizeName(r.roomName);
+      return name.includes(key) || key.includes(name);
+    });
+    if (partial) return partial;
+  }
+  return candidates.length === 1 ? candidates[0] : undefined;
+}

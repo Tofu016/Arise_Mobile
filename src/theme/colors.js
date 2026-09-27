@@ -1,86 +1,110 @@
 // SDCA brand palette + semantic colour roles.
 //
-// Ported from the SDCA Brand Style Guide. The app is a *full light rebrand*:
-// white / warm-neutral surfaces with SDCA Maroon as the lead colour and
-// Dominican Gold as a sparing accent. Every screen — including overlays that
-// sit on top of the live camera / 360° panoramas — uses these light values.
+// From the UI designer's brand board (sdca2026.my.canva.site/virtualtour):
+// the five palette swatches, the button rules ("+5% light for button, use
+// the primary colour"; darker on press), the mobile nav colours, and the
+// greys sampled directly from the mobile mock-ups (fields, wells, circle
+// buttons, dividers).
 //
 // Screens reference the SEMANTIC roles below (`background`, `primary`,
 // `textMuted`, …), not the raw `palette`, so a future re-theme is a
 // single-file change.
 
-// Raw brand values — verified against the style guide's CSS custom properties.
 export const palette = {
-  maroon: "#A12124",
-  maroonDark: "#7A171A", // hover / pressed
-  maroonDeeper: "#5C1113", // dark-maroon panels, splash
-  maroonTint: "#F4E1E1",
-  maroonTint2: "#FBF0F0",
+  // The board's five swatches.
+  offWhite: "#F2F1EC",
+  warmGray: "#635D5F",
+  gold: "#B8812E",
+  red: "#A41D22",
+  ink: "#1A1A1A",
 
-  gold: "#C9A24B",
-  goldDark: "#A3812F",
+  // Button shades of the primary red: the board's "+5% light" fill, and
+  // the darker pressed tone.
+  redButton: "#B1252A",
+  redDark: "#82181C",
+  redTint: "#F6E4E5",
+  // Secondary text on a red highlight (the selected-row subtitle).
+  redOnRedSubtle: "#E3B3B5",
 
-  ink: "#201B1B",
-  gray900: "#2B2626",
-  gray700: "#5B5252",
-  gray500: "#8C8180",
-  gray300: "#D8CFCD",
-  gray100: "#F4F0EE",
+  goldDark: "#966A26",
+
+  // Greys sampled from the mobile mock-ups.
+  gray700: "#726C6E", // grey pill buttons ("360° view"), dark nav bar
+  gray500: "#A6A6A6", // placeholders, faint captions
+  gray300: "#D8D6D7", // round icon buttons (close / save)
+  navLight: "#DBD9DA", // bottom nav bar (board: #E0DFDF at 20% over white)
+  field: "#E8E7E7", // info rows, directions fields
+  well: "#EFEEEF", // search bar, description box
+  divider: "#E0DEDF",
   white: "#FFFFFF",
 
   success: "#2E7D46",
   warning: "#B4791A",
   info: "#2C5F8A",
-
-  // A brighter alert red than brand maroon — used ONLY for the emergency
-  // evacuation affordance (nearest-exit button / route), so it stays
-  // visually separable from ordinary primary-maroon buttons. Taken from the
-  // guide's "don't" marker swatch.
-  emergency: "#D6484B",
-  emergencyTint: "#FBEDED",
 };
 
 export const colors = {
   ...palette,
 
+  // Older names still used by some screens — kept as aliases so nothing
+  // has to be renamed at once.
+  maroon: palette.red,
+  maroonDark: palette.redDark,
+  maroonDeeper: palette.redDark,
+  maroonTint: palette.redTint,
+  maroonTint2: palette.redTint,
+  gray900: palette.ink,
+  gray100: palette.well,
+
   // ----- Surfaces -----
   background: palette.white,
-  surface: palette.white, // cards / sheets / panels — separated by border + shadow
-  surfaceSunken: palette.gray100, // inset inputs, panorama loading backdrop, list wells
-  surfaceInverse: palette.maroonDeeper, // dark-maroon panels, splash background
+  surface: palette.white, // cards / sheets / panels
+  surfaceSunken: palette.well, // search bar, description box, loading backdrop
+  surfaceField: palette.field, // info rows, form fields
+  surfaceInverse: palette.ink,
 
   // Near-opaque white for cards that sit over the live camera / AR feed —
   // solid rather than translucent so text stays legible over a bright scene.
-  overlaySurface: "rgba(255,255,255,0.95)",
-  scrim: "rgba(32,27,27,0.45)", // modal / panel backdrop (ink-based, not pure black)
+  overlaySurface: "rgba(255,255,255,0.96)",
+  scrim: "rgba(26,26,26,0.45)",
 
   // ----- Borders -----
-  border: palette.gray300,
+  border: palette.divider,
   borderStrong: palette.gray500,
-  hairline: palette.gray100,
+  hairline: palette.divider,
 
   // ----- Text -----
   textPrimary: palette.ink, // headings, key text
-  textSecondary: palette.gray900, // body copy
-  textMuted: palette.gray700, // labels, secondary metadata (AA on white)
+  textSecondary: palette.warmGray, // body copy, list titles
+  textMuted: palette.warmGray, // labels, secondary metadata
   textSubtle: palette.gray500, // placeholders, disabled, faint captions only
-  textOnPrimary: palette.white, // text on a maroon fill
-  textOnDark: palette.white, // text on maroonDeeper / camera scrims
-  textLink: palette.maroon, // links are maroon, never gold
+  textOnPrimary: palette.white, // text on a red fill
+  textOnDark: palette.white,
+  textLink: palette.red,
 
   // ----- Brand roles -----
-  primary: palette.maroon,
-  primaryPressed: palette.maroonDark,
-  primaryTint: palette.maroonTint, // faint maroon wash (badges, focus wells)
-  accent: palette.gold, // dividers, large display flourishes, on-maroon CTAs ONLY
+  primary: palette.red,
+  primaryButton: palette.redButton,
+  primaryPressed: palette.redDark,
+  primaryTint: palette.redTint,
+  accent: palette.gold,
   accentPressed: palette.goldDark,
-  focusRing: palette.maroon,
+  focusRing: palette.red,
+
+  // ----- Controls -----
+  neutralButton: palette.warmGray, // "Auto walk", secondary pills
+  neutralButtonPressed: palette.ink,
+  iconButton: palette.gray300, // round close / save buttons
+  navBar: palette.navLight,
+  navIcon: palette.warmGray,
 
   // ----- Functional -----
   success: palette.success,
   warning: palette.warning,
   info: palette.info,
-  danger: palette.maroon, // form errors reuse brand maroon, per the guide
-  emergency: palette.emergency,
-  emergencyTint: palette.emergencyTint,
+  danger: palette.red,
+  // The board styles emergency exits in the brand red, not a separate
+  // alert red.
+  emergency: palette.red,
+  emergencyTint: palette.redTint,
 };

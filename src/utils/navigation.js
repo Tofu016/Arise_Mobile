@@ -2,8 +2,8 @@
 // from the web app's src/utils/navigation.js so both apps agree.
 //
 // Facing, as the web app does it:
-//   walk (hotspot tap, next directions step) — the link's own default
-//        arrival view if an admin set one, else the way the arrow pointed.
+//   walk (hotspot tap, next directions step) — keep facing the way you
+//        walked (see walkEntryView).
 //   jump (search result, room, building pick, first landing) — the
 //        destination's own starting view if set, else dead ahead.
 
@@ -50,8 +50,25 @@ export function pickBuildingStart(nodes, buildingId) {
   return pickDefaultEntranceForBuilding(nodes, buildingId) || nodes.find((n) => n.building === buildingId) || null;
 }
 
-// The view to open facing after walking along a hotspot link.
-export function walkEntryView(hotspot) {
+// The view to open facing after walking along a hotspot link: keep facing
+// the way you were walking.
+//
+// The panoramas don't share a common north (only ~40% of two-way links
+// point back at each other's opposite angle), so an angle from one photo
+// means nothing in the next — reusing the arrow's yaw, or the camera's,
+// landed some walks facing backwards. The arrival photo's own RETURN arrow
+// (its hotspot back to where you came from) is in the right frame: facing
+// directly away from it is facing the way you walked. Every link has one
+// today; without one, the link's own default view (or its arrow) is used.
+// Pitch starts level.
+//   hotspot     — the link walked, from the node being left
+//   arrivalNode — the node arrived at
+//   fromId      — the node being left
+export function walkEntryView(hotspot, arrivalNode, fromId) {
+  const back = arrivalNode?.hotspots?.[fromId];
+  if (back && Number.isFinite(back.yaw)) {
+    return { yaw: (back.yaw + 180) % 360, pitch: 0 };
+  }
   return {
     yaw: hotspot?.defaultYaw ?? hotspot?.yaw ?? 0,
     pitch: hotspot?.defaultPitch ?? 0,
@@ -63,5 +80,25 @@ export function jumpEntryView(node) {
   return {
     yaw: node?.startingViewYaw ?? 0,
     pitch: node?.startingViewPitch ?? 0,
+  };
+}
+
+// The cross-campus flyover for a move between two nodes (see
+// components/FlyoverPanel.js), or null when it isn't one: both buildings
+// need a location, and the locations must differ. Same rule as web's
+// findFlyover.
+export function findFlyover(fromNode, toNode, buildings) {
+  if (!fromNode || !toNode) return null;
+  const from = buildings.find((b) => b.id === fromNode.building);
+  const to = buildings.find((b) => b.id === toNode.building);
+  if (from?.lat == null || to?.lat == null) return null;
+  if (from.lat === to.lat && from.lng === to.lng) return null;
+  return {
+    fromLat: from.lat,
+    fromLng: from.lng,
+    fromLabel: from.label || fromNode.building,
+    toLat: to.lat,
+    toLng: to.lng,
+    toLabel: to.label || toNode.building,
   };
 }

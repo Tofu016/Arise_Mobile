@@ -35,9 +35,25 @@ The runtime dependency tree that is compiled into the app is entirely permissive
 | MIT | react, react-native, expo + all `expo-*` modules, `@reactvision/react-viro` (ViroReact), `three`, `@react-three/fiber`, `expo-router`, `react-native-reanimated`, `react-native-gesture-handler`, `fuse.js` |
 | Apache-2.0 | `@infinitered/react-native-mlkit-*` |
 | BSD-3-Clause / BSD-2-Clause / ISC / 0BSD | assorted transitive utilities |
+| SIL Open Font License 1.1 | icon fonts bundled by `@expo/vector-icons` (Font Awesome Free fonts, Material Design Icons) |
 
 No copyleft (GPL / LGPL / AGPL) or share-alike (CC-BY-SA) licensed code is
 compiled into the distributed application.
+
+### Brand fonts (not open source)
+
+The app bundles the two typefaces from the SDCA brand board
+(`assets/fonts/`). Neither is open-licensed, so each needs a licence that
+covers embedding in a distributed app:
+
+| Font | Files | Owner / terms |
+|---|---|---|
+| Century Gothic Paneuropean | `CenturyGothic-*.ttf` | Monotype, commercial. Needs an **app-embedding licence** before the APK is distributed. |
+| Optimus Princeps | `OptimusPrinceps-*.ttf` | Manfred Klein, freeware. Confirm the terms allow app embedding. |
+
+Open-licensed stand-ins (TeX Gyre Adventor, GUST licence; Cinzel, SIL OFL)
+are kept in `assets/fonts/open-alternatives/` with their licences. They are
+not bundled unless `app/_layout.js` is pointed back at them.
 
 ## Build-time-only dependencies of note (not distributed)
 

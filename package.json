@@ -10,6 +10,7 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@expo/vector-icons": "^15.0.2",
     "@infinitered/react-native-mlkit-text-recognition": "^5.0.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-three/fiber": "^9.7.0",
@@ -27,6 +28,7 @@
     "expo-linking": "~57.0.11",
     "expo-router": "~57.0.23",
     "expo-secure-store": "~57.0.4",
+    "expo-sensors": "~57.0.3",
     "expo-splash-screen": "~57.0.9",
     "expo-status-bar": "~57.0.1",
     "expo-system-ui": "~57.0.4",
@@ -42,7 +44,6 @@
   },
   "devDependencies": {
     "@babel/core": "^7.25.0",
-    "@expo/config-plugins": "~57.0.9",
     "babel-preset-expo": "~57.0.0"
   }
 }

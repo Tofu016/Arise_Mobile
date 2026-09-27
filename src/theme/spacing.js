@@ -15,10 +15,13 @@ export const spacing = {
   xxxl: 32,
 };
 
+// The board's mobile spec: "outer border radius 20px, inner border radius
+// 15px" (floating cards / sheets, and the controls inside them); every
+// button is a full pill.
 export const radii = {
-  sm: 4, // guide --radius-sm
-  md: 8, // guide --radius-md
-  lg: 12, // cards, floating panels
-  xl: 16, // bottom sheets
+  sm: 6,
+  md: 10,
+  lg: 15, // board: inner radius — fields, info rows, wells, photo tiles
+  xl: 20, // board: outer radius — sheets, floating cards
   pill: 999,
 };

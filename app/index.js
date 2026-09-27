@@ -1,23 +1,39 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, TextInput, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Pressable, Image } from "react-native";
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { useAuth } from "../src/context/useAuth";
 import { usePublicNodes } from "../src/hooks/usePublicNodes";
 import { useSearchableRooms } from "../src/hooks/useSearchableRooms";
 import { usePanoramaImage } from "../src/hooks/usePanoramaImage";
-import { useBuildings } from "../src/utils/buildingStore";
-import { allBuildings, buildingOrder, buildingLabel, floorLabel, markerTypeInfo } from "../src/utils/constants";
-import { searchRooms, searchNodes } from "../src/utils/search";
+import { useBuildings, campusOf } from "../src/utils/buildingStore";
+import { buildingOrder } from "../src/utils/constants";
+import { searchRooms, searchNodes, findRoomForMarker } from "../src/utils/search";
 import { findPath } from "../src/utils/pathfinding";
 import { elevatorDestinationsFrom, elevatorRideBetween, arrivalYawFromLanding } from "../src/utils/elevators";
-import { pickDefaultNode, pickBuildingStart, walkEntryView, jumpEntryView } from "../src/utils/navigation";
+import { pickDefaultNode, walkEntryView, jumpEntryView, findFlyover } from "../src/utils/navigation";
+import { useRecentRooms, addRecentRoom, removeRecentRoom } from "../src/hooks/useRecentRooms";
+import { useSavedRooms, saveRoom, unsaveRoom, reloadSavedRooms } from "../src/hooks/useSavedRooms";
 import MobileRoomSheet from "../src/components/MobileRoomSheet";
 import MobileDirectionsSheet from "../src/components/MobileDirectionsSheet";
 import ElevatorPicker from "../src/components/ElevatorPicker";
+import FlyoverPanel from "../src/components/FlyoverPanel";
 import PanoramaViewer from "../src/components/PanoramaViewer";
-import Button from "../src/components/Button";
-import { colors, typography, fontFamily, radii, spacing, shadows } from "../src/theme";
+import SearchSheet from "../src/components/SearchSheet";
+import DirectorySheet from "../src/components/DirectorySheet";
+import AccountSheet from "../src/components/AccountSheet";
+import SavedSheet from "../src/components/SavedSheet";
+import ToastHost, { showToast } from "../src/components/Toast";
+import BottomNav, { NAV_HEIGHT } from "../src/components/BottomNav";
+import BrandLogo from "../src/components/BrandLogo";
+import Icon, { COLOR_ICONS } from "../src/components/Icon";
+import { isGyroAvailable } from "../src/utils/deviceLook";
+import { colors, typography, radii, spacing, shadows } from "../src/theme";
+
+// Auto walk steps along the route every 3 s — the brand board's
+// "AUTO WALK (EVERY 3S)".
+const AUTO_WALK_MS = 3000;
 
 export default function MainScreen() {
   const router = useRouter();
@@ -29,26 +45,19 @@ export default function MainScreen() {
   // some phones. This gives the actual safe area for the current device.
   const insets = useSafeAreaInsets();
 
-  // Same single-source-of-truth pattern as the web app's panelMode: only one
-  // floating panel showing at a time. "search"/"account" are filled in with
-  // placeholder content in this stage; "room"/"directions" arrive in 3d/3e.
+  // Only one sheet at a time, same as the web app's panelMode:
+  //   null | "search" | "directory" | "room" | "directions" | "account"
   const [panelMode, setPanelMode] = useState(null);
+  // The bottom-nav tab that opened what's showing, so it stays lit while a
+  // room card or directions opened from it are up.
+  const [activeTab, setActiveTab] = useState(null);
   const searchInputRef = useRef(null);
-  // The search TextInput never unmounts (only the results panel below it
-  // does) — so closing the panel without explicitly blurring it leaves the
-  // input still focused at the native level. Tapping it again wouldn't
-  // fire onFocus a second time (it's already focused), silently breaking
-  // "tap to reopen search." Blurring here makes the next tap a genuine new
-  // focus event again. Harmless no-op when some other panel (account,
-  // building) is what's actually closing.
   const closePanel = () => {
     setPanelMode(null);
     searchInputRef.current?.blur();
   };
 
-  const [buildingFilter, setBuildingFilter] = useState("all");
   const [currentId, setCurrentId] = useState(null);
-  const [history, setHistory] = useState([]);
   // The view the next panorama opens facing — see utils/navigation.js.
   const [entryView, setEntryView] = useState({ yaw: 0, pitch: 0 });
 
@@ -79,19 +88,19 @@ export default function MainScreen() {
     return neighborIds.map((nid) => {
       const target = nodes.find((n) => n.id === nid);
       // Every link has its own angle: node_neighbors.yaw/pitch are NOT NULL.
-      return { id: nid, name: target?.name || nid, ...current.hotspots[nid] };
+      return { id: nid, name: target?.name || nid, photo: target?.photo || null, ...current.hotspots[nid] };
     });
   }, [current, nodes]);
 
   // Fixed point-of-interest markers (rooms/facilities/exits/hydrants, and
   // elevator landings) for the current node — same shape as web's.
   const markers = current?.markers || [];
-  const [selectedMarker, setSelectedMarker] = useState(null);
   const [elevatorPicker, setElevatorPicker] = useState(null);
 
-  // Tapping an elevator landing is like pressing the call button, as on
-  // web: with only one other floor it rides straight there, otherwise it
-  // asks which floor. Every other marker just shows its info banner.
+  // Same as web: tapping an elevator landing is like pressing the call
+  // button (with only one other floor it rides straight there, otherwise it
+  // asks which floor), and tapping a room marker opens that room's card.
+  // Every other marker is just its always-visible label.
   const handleMarkerTap = (markerId) => {
     const marker = markers.find((m) => m.id === markerId);
     if (!marker) return;
@@ -106,55 +115,65 @@ export default function MainScreen() {
         return;
       }
     }
-    setSelectedMarker(marker);
-  };
-
-  // A ride is a walk, not a jump: history is kept, so Back rides you back.
-  // You step out facing away from the doors, toward the floor.
-  const rideElevatorTo = (dest) => {
-    setElevatorPicker(null);
-    goTo(dest.node.id, { yaw: arrivalYawFromLanding(dest.marker) });
-  };
-  // Dismiss the info banner whenever navigating anywhere — it belongs to
-  // whatever panorama was showing when it was tapped, not the next one.
-  useEffect(() => {
-    setSelectedMarker(null);
-  }, [currentId]);
-
-  // Walking via a hotspot — pushes history (so Back works) and opens the
-  // new panorama facing the way you walked (or the link's own default
-  // view), same as web. Distinct from jumpToNode below (search results /
-  // room card), which is a fresh start with no history.
-  const goTo = (id, hotspot) => {
-    setHistory((h) => (currentId ? [...h, currentId] : h));
-    setCurrentId(id);
-    setEntryView(walkEntryView(hotspot));
-  };
-
-  const goBack = () => {
-    if (history.length === 0) return;
-    setCurrentId(history[history.length - 1]);
-    setHistory(history.slice(0, -1));
-    setEntryView({ yaw: 0, pitch: 0 });
-  };
-
-  const buildingOptions = useMemo(
-    () => [{ id: "all", label: "All Buildings" }, ...allBuildings()],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [buildings]
-  );
-
-  const handleBuildingPick = (buildingId) => {
-    setBuildingFilter(buildingId);
-    setPanelMode(null);
-    if (buildingId === "all") return;
-    const start = pickBuildingStart(nodes, buildingId);
-    if (start) {
-      setHistory([]);
-      setCurrentId(start.id);
-      setEntryView(jumpEntryView(start));
+    if (marker.type === "room") {
+      const room = roomForMarker.get(marker.id);
+      if (room) openRoomCard(room);
     }
   };
+
+  // A ride is a walk: you step out facing away from the doors, toward the
+  // floor.
+  const rideElevatorTo = (dest) => {
+    setElevatorPicker(null);
+    goTo(dest.node.id, { yaw: arrivalYawFromLanding(dest.marker) }, { ride: true });
+  };
+  // ---------- Gyro look-around ----------
+  // The designer's gyro-map / gyro-arrowkeys pair: move the phone to look
+  // around (compass icon) or drag with a finger (arrows icon). Only offered
+  // on a phone with the sensor, in an app build that includes expo-sensors.
+  const [gyroAvailable, setGyroAvailable] = useState(false);
+  const [gyroOn, setGyroOn] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    isGyroAvailable().then((ok) => !cancelled && setGyroAvailable(ok));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ---------- Cross-campus flyover ----------
+  // As on web, every move (walk, jump, back) to a building somewhere else
+  // is held back behind the flyover map; it happens when that finishes (or
+  // is skipped), and not at all if it's cancelled. While one is showing,
+  // other moves (an auto-walk step, a stray tap) are ignored.
+  const [flyover, setFlyover] = useState(null);
+  const requestMove = (targetId, move) => {
+    if (flyover) return;
+    const hop = findFlyover(current, nodes?.find((n) => n.id === targetId), buildings);
+    if (hop) setFlyover({ ...hop, pending: move });
+    else move();
+  };
+  const completeFlyover = () => {
+    const pending = flyover?.pending;
+    setFlyover(null);
+    pending?.();
+  };
+  const cancelFlyover = () => {
+    setFlyover(null);
+    setAutoWalking(false); // it would only ask again
+  };
+
+  // Walking via a hotspot (or a directions step, or an elevator ride): opens
+  // the new panorama facing the way you walked (or the link's own default
+  // view), same as web. Distinct from jumpToNode below (search results /
+  // room card), which opens facing the destination's own starting view.
+  // `ride`: an elevator ride, which keeps its own arrival view (facing out
+  // of the doors) rather than "keep walking the same way".
+  const goTo = (id, hotspot, { ride = false } = {}) =>
+    requestMove(id, () => {
+      setCurrentId(id);
+      setEntryView(ride ? walkEntryView(hotspot) : walkEntryView(hotspot, nodes?.find((n) => n.id === id), currentId));
+    });
 
   // ---------- Search ----------
   const [searchQuery, setSearchQuery] = useState("");
@@ -182,17 +201,32 @@ export default function MainScreen() {
   }, [panelMode === "search", searchableRooms]);
 
   const jumpToNode = (id) => {
-    setHistory([]);
-    setCurrentId(id);
-    setEntryView(jumpEntryView(nodes?.find((n) => n.id === id)));
+    requestMove(id, () => {
+      setCurrentId(id);
+      setEntryView(jumpEntryView(nodes?.find((n) => n.id === id)));
+    });
     setSearchQuery("");
     closePanel();
   };
 
   // The currently-open room detail sheet, or null.
+  // Room markers that have a room with details behind them — only those
+  // open a card, so only those respond to a tap.
+  const roomForMarker = useMemo(() => {
+    const map = new Map();
+    for (const m of markers) {
+      if (m.type !== "room") continue;
+      const room = findRoomForMarker(m, searchableRooms, current);
+      if (room) map.set(m.id, room);
+    }
+    return map;
+  }, [markers, searchableRooms, current]);
+  const isMarkerTappable = (m) => (m.type === "elevator" ? !!m.elevatorId : roomForMarker.has(m.id));
+
   const [selectedRoomCard, setSelectedRoomCard] = useState(null);
 
   const openRoomCard = (room) => {
+    addRecentRoom(room.roomName);
     setSelectedRoomCard(room);
     setSearchQuery("");
     searchInputRef.current?.blur();
@@ -258,9 +292,61 @@ export default function MainScreen() {
   // "Emergency Fire Stairs") — those are real waypoints the path may
   // legitimately pass through, but only a marker specifically labeled
   // "Assembly Point" counts as the genuine, complete safe destination.
+  // The Directions tab: back to the route in progress if there is one
+  // (switching tabs keeps it), otherwise a fresh one from where you're
+  // standing, with the destination left to pick.
+  const openDirectionsPanel = () => {
+    if (!directions) {
+      setDirections({
+        fromQuery: current?.name || "",
+        fromId: current?.id || null,
+        toQuery: "",
+        toId: null,
+        path: null,
+        stepIndex: 0,
+        error: "",
+        editingField: null,
+        kind: "point",
+      });
+    }
+    setSearchQuery("");
+    searchInputRef.current?.blur();
+    setPanelMode("directions");
+  };
+
+  // The Nearest exit sheet's DIRECTIONS button: back to ordinary
+  // directions from where you are now, keeping the destination that was
+  // being planned before switching to the exit (if any).
+  const plannedDestinationRef = useRef(null);
+  const switchToDirections = () => {
+    setAutoWalking(false);
+    const planned = plannedDestinationRef.current;
+    setDirections({
+      fromQuery: current?.name || "",
+      fromId: current?.id || null,
+      toQuery: planned?.toQuery || "",
+      toId: planned?.toId || null,
+      path: null,
+      stepIndex: 0,
+      error: "",
+      editingField: null,
+      kind: "point",
+    });
+  };
+
+  // The Directions sheet's NEAREST EXIT button: replaces whatever route was
+  // being planned with the shortest one to an assembly point ON THIS CAMPUS.
+  // Both the assembly points and the route itself are limited to the campus
+  // you're on (GD1-GD3 are one campus, Digital Campus another), so it never
+  // sends you across to another campus to get out.
   const openDirectionsToNearestExit = () => {
     if (!current || !nodes) return;
-    const assemblyPoints = nodes.filter((n) =>
+    const campus = campusOf(current.building);
+    const campusNodes = nodes.filter((n) => campusOf(n.building) === campus);
+    setAutoWalking(false);
+    plannedDestinationRef.current =
+      directions?.kind === "point" && directions.toId ? { toQuery: directions.toQuery, toId: directions.toId } : null;
+    const assemblyPoints = campusNodes.filter((n) =>
       (n.markers || []).some(
         (m) => m.type === "exit" && (m.label || "").trim().toLowerCase() === "assembly point"
       )
@@ -274,7 +360,7 @@ export default function MainScreen() {
         toId: null,
         path: null,
         stepIndex: 0,
-        error: 'No assembly point has been set up yet — ask an admin to add an exit marker labeled "Assembly Point."',
+        error: 'No assembly point has been set up on this campus yet — ask an admin to add an exit marker labeled "Assembly Point" here.',
         editingField: null,
         kind: "exit",
       });
@@ -286,7 +372,7 @@ export default function MainScreen() {
 
     let best = null;
     for (const area of assemblyPoints) {
-      const path = findPath(nodes, current.id, area.id);
+      const path = findPath(campusNodes, current.id, area.id);
       if (path && (!best || path.length < best.path.length)) best = { area, path };
     }
 
@@ -297,7 +383,7 @@ export default function MainScreen() {
       toId: best?.area.id || null,
       path: best?.path || null,
       stepIndex: 0,
-      error: best ? "" : "No walkable route to an assembly point was found from here.",
+      error: best ? "" : "No walkable route to an assembly point on this campus was found from here.",
       editingField: null,
       kind: "exit",
     });
@@ -307,6 +393,7 @@ export default function MainScreen() {
   };
 
   const closeDirections = () => {
+    setAutoWalking(false);
     setDirections(null);
     closePanel();
   };
@@ -337,17 +424,23 @@ export default function MainScreen() {
     return searchNodes(q, nodes);
   }, [directions?.editingField, directions?.fromQuery, directions?.toQuery, nodes]);
 
-  const handleGetDirections = () => {
+  // The route for the picked From/To, or null (with the reason shown).
+  const computeRoute = () => {
     if (!directions?.fromId || !directions?.toId) {
       setDirections((d) => ({ ...d, error: "Pick both a starting point and a destination from the suggestions." }));
-      return;
+      return null;
     }
     const path = findPath(nodes, directions.fromId, directions.toId);
     if (!path) {
       setDirections((d) => ({ ...d, path: null, error: "No walkable route found between these two points yet." }));
-      return;
+      return null;
     }
     setDirections((d) => ({ ...d, path, stepIndex: 0, error: "" }));
+    return path;
+  };
+
+  const handleGetDirections = () => {
+    computeRoute();
   };
 
   const handleStartWalking = () => {
@@ -367,17 +460,18 @@ export default function MainScreen() {
     // while progressing through the route.
     const hotspot = current?.hotspots?.[nextId];
     const ride = !hotspot && nodes ? elevatorRideBetween(nodes, currentId, nextId) : null;
-    goTo(nextId, ride ? { yaw: arrivalYawFromLanding(ride.toMarker) } : hotspot);
+    goTo(nextId, ride ? { yaw: arrivalYawFromLanding(ride.toMarker) } : hotspot, { ride: !!ride });
   };
 
   const arrived = directions?.path && directions.stepIndex === directions.path.length - 1;
   const nextStopId = directions?.path?.[directions.stepIndex + 1] || null;
   const nextStopName = nextStopId ? (nodes?.find((n) => n.id === nextStopId)?.name || nextStopId) : null;
   // The floor the route's next step rides to, when that step is an elevator.
-  const nextElevatorFloor =
+  const nextElevatorRide =
     nextStopId && currentId && !current?.hotspots?.[nextStopId] && nodes
-      ? elevatorRideBetween(nodes, currentId, nextStopId)?.toFloor ?? null
+      ? elevatorRideBetween(nodes, currentId, nextStopId)
       : null;
+  const nextElevatorFloor = nextElevatorRide?.toFloor ?? null;
 
   // Room sheet's "Get Directions" now opens the real Directions sheet
   // instead of jumping directly. "360° View" still just jumps, matching
@@ -393,14 +487,118 @@ export default function MainScreen() {
     setSelectedRoomCard(null);
   };
 
-  const handleRoomResultPress = (room) => openRoomCard(room);
+  // ---------- Auto walk ----------
+  const [autoWalking, setAutoWalking] = useState(false);
 
-  const displayName = profile?.name || user?.email || "";
-  const initials = displayName
-    ? displayName.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase()
-    : "?";
-  const currentBuildingLabel =
-    buildingOptions.find((b) => b.id === buildingFilter)?.label || "All Buildings";
+  // One step of the route: onto its first stop if the visitor isn't on the
+  // route yet, otherwise along to the next stop.
+  const autoStep = (path = directions?.path, stepIndex = directions?.stepIndex ?? 0) => {
+    if (!path) return;
+    if (stepIndex === 0 && currentId !== path[0]) handleStartWalking();
+    else handleWalkToNextStop();
+  };
+
+  const toggleAutoWalk = () => {
+    if (autoWalking) {
+      setAutoWalking(false);
+      return;
+    }
+    const path = directions?.path || computeRoute();
+    if (!path) return;
+    setAutoWalking(true);
+    if (directions?.path) autoStep(path);
+  };
+
+  // Every 3 s after each step lands, take the next one; stop on arrival.
+  useEffect(() => {
+    if (!autoWalking) return undefined;
+    if (!directions?.path || arrived) {
+      setAutoWalking(false);
+      return undefined;
+    }
+    const timer = setTimeout(() => autoStep(), AUTO_WALK_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoWalking, currentId, directions?.path, directions?.stepIndex, arrived]);
+
+  // ---------- Bottom nav ----------
+  const recentNames = useRecentRooms();
+  const recentRooms = useMemo(
+    () => recentNames.map((name) => searchableRooms.find((r) => r.roomName === name)).filter(Boolean),
+    [recentNames, searchableRooms]
+  );
+
+  // The placard scanner's search button comes back here asking for the
+  // search sheet (?panel=search); open it once, then clear the request.
+  const { panel: requestedPanel } = useLocalSearchParams();
+  useEffect(() => {
+    if (requestedPanel !== "search") return;
+    setActiveTab("search");
+    setSearchQuery("");
+    setPanelMode("search");
+    router.setParams({ panel: undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedPanel]);
+
+  // ---------- Saved rooms ----------
+  const savedRooms = useSavedRooms();
+  const selectedRoomSaved =
+    !!selectedRoomCard && savedRooms.saved.some((s) => s.placard_dialog_id === Number(selectedRoomCard.placard?.id));
+
+  // The room card's bookmark: flips at once; if the server refuses, it
+  // flips back and says why (e.g. the 20-room limit).
+  const toggleSaveRoom = (room) => {
+    const id = room.placard?.id;
+    if (id == null) return;
+    const saved = savedRooms.saved.some((s) => s.placard_dialog_id === Number(id));
+    if (saved) {
+      unsaveRoom(id)
+        .then(() => showToast(`Removed ${room.roomName} from saved`))
+        .catch((err) => showToast(err.message));
+    } else {
+      saveRoom(id, room.roomName)
+        .then(() => showToast(`Saved ${room.roomName}`))
+        .catch((err) => showToast(err.message));
+    }
+  };
+
+  // The Saved sheet's x: gone at once, with UNDO to put it back.
+  const removeSavedRoom = (entry, room) => {
+    const name = room?.roomName ?? entry.room_name;
+    unsaveRoom(entry.placard_dialog_id)
+      .then(() =>
+        showToast(`Removed ${name}`, {
+          actionLabel: "Undo",
+          onAction: () => saveRoom(entry.placard_dialog_id, entry.room_name).catch((err) => showToast(err.message)),
+        })
+      )
+      .catch((err) => showToast(err.message));
+  };
+
+  const handleTab = (tab) => {
+    if (tab === "directions") {
+      if (panelMode === "directions") {
+        closePanel(); // the route is kept; the tab brings it back
+        return;
+      }
+      setActiveTab("directions");
+      openDirectionsPanel();
+      return;
+    }
+    const panelFor = { location: "directory", search: "search", save: "saved", account: "account" }[tab];
+    if (panelMode === panelFor) {
+      closePanel();
+      return;
+    }
+    setActiveTab(tab);
+    setSearchQuery("");
+    setPanelMode(panelFor);
+  };
+
+  const navBottom = insets.bottom + spacing.md;
+  // Sheets float just above the nav, and never cover the logo.
+  const sheetBottom = navBottom + NAV_HEIGHT + spacing.sm;
+  const sheetTop = insets.top + 76;
 
   return (
     <View style={styles.screen}>
@@ -416,20 +614,28 @@ export default function MainScreen() {
           <View style={styles.panoramaViewerWrap}>
             <PanoramaViewer
               image={panorama}
+              sceneKey={current.id}
               hotspots={hotspots}
               markers={markers}
               onNavigate={goTo}
               onMarkerTap={handleMarkerTap}
+              isMarkerTappable={isMarkerTappable}
+              // As on web: the route's next hotspot turns green, and an
+              // elevator landing that is the next step pulses.
+              highlightedId={nextStopId}
+              highlightedMarkerId={nextElevatorRide?.fromMarker?.id ?? null}
+              previewsHidden={!!elevatorPicker}
+              gyroEnabled={gyroOn}
               entryYaw={entryView.yaw}
               entryPitch={entryView.pitch}
             />
             {current.photo && !panorama && !photoError && (
-              <View style={styles.panoramaDebugOverlay} pointerEvents="none">
+              <View style={styles.panoramaStatus} pointerEvents="none">
                 <Text style={styles.panoramaPlaceholderText}>Loading photo…</Text>
               </View>
             )}
             {photoError && (
-              <View style={styles.panoramaDebugOverlay} pointerEvents="none">
+              <View style={styles.panoramaStatus} pointerEvents="none">
                 <Text style={styles.panoramaErrorText}>{photoError}</Text>
               </View>
             )}
@@ -439,220 +645,133 @@ export default function MainScreen() {
         )}
       </View>
 
-      {/* ---------- Marker info banner ---------- */}
-      {selectedMarker && (
-        <View style={[styles.markerBanner, { top: insets.top + 60 }]}>
-          <View style={[styles.markerBannerDot, { backgroundColor: markerTypeInfo(selectedMarker.type).color }]}>
-            <Text style={styles.markerBannerIcon}>{markerTypeInfo(selectedMarker.type).icon}</Text>
-          </View>
-          <Text style={styles.markerBannerLabel} numberOfLines={2}>{selectedMarker.label}</Text>
-          <Pressable onPress={() => setSelectedMarker(null)} hitSlop={10}>
-            <Text style={styles.markerBannerClose}>✕</Text>
-          </Pressable>
-        </View>
-      )}
-
-      {/* ---------- Top bar ---------- */}
-      <View style={[styles.topBar, { top: insets.top + 12 }]}>
-        {history.length > 0 && (
-          <Pressable style={styles.backBtn} onPress={goBack} title="Back">
-            <Text style={styles.backBtnText}>←</Text>
-          </Pressable>
-        )}
-
-        <Pressable style={styles.arBtn} onPress={() => router.push("/placard-scanner")}>
-          <Text style={styles.arBtnText}>Placard</Text>
-        </Pressable>
-
-        <View style={styles.searchBar}>
-          <TextInput
-            ref={searchInputRef}
-            style={styles.searchInput}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            onFocus={() => setPanelMode("search")}
-            placeholder="Search a room..."
-            placeholderTextColor={colors.textSubtle}
-          />
-        </View>
-
-        <Pressable
-          style={styles.accountBtn}
-          onPress={() => setPanelMode((m) => (m === "account" ? null : "account"))}
-        >
-          <Text style={styles.accountBtnText}>{initials}</Text>
-        </Pressable>
+      {/* ---------- Top: the logo, centred (brand board: nothing else up
+          here, to leave the panorama clear). ---------- */}
+      <View style={[styles.logoWrap, { top: insets.top + 10 }]} pointerEvents="none">
+        <BrandLogo />
       </View>
 
-      {/* ---------- Top-anchored panel: search / account ---------- */}
-      {(panelMode === "search" || panelMode === "account") && (
-        <>
-          <Pressable style={styles.topPanelBackdrop} onPress={closePanel} />
-          <View style={[styles.topPanel, { top: insets.top + 60 }]}>
-            {panelMode === "search" && (
-              <ScrollView style={styles.searchResultsScroll} keyboardShouldPersistTaps="handled">
-                {!searchQuery.trim() && randomSuggestions.length > 0 && (
-                  <>
-                    <Text style={styles.resultsLabel}>Suggested rooms</Text>
-                    {randomSuggestions.map((r) => (
-                      <View key={r.roomName} style={styles.resultRowOuter}>
-                        <Pressable style={styles.resultRowMain} onPress={() => handleRoomResultPress(r)}>
-                          <Text style={styles.resultName}>{r.roomName}</Text>
-                          <Text style={styles.resultSub}>
-                            {r.placard.use ? `${r.placard.use} · ` : ""}
-                            {buildingLabel(r.node.building)} · {floorLabel(r.node.floor)}
-                          </Text>
-                        </Pressable>
-                        <Pressable style={styles.resultDirectionsBtn} onPress={() => openDirectionsTo(r.node)}>
-                          <Text style={styles.resultDirectionsBtnText}>➜</Text>
-                        </Pressable>
-                      </View>
-                    ))}
-                  </>
-                )}
-
-                {roomResults.length > 0 && (
-                  <>
-                    <Text style={styles.resultsLabel}>Rooms</Text>
-                    {roomResults.map((r) => (
-                      <View key={r.roomName} style={styles.resultRowOuter}>
-                        <Pressable style={styles.resultRowMain} onPress={() => handleRoomResultPress(r)}>
-                          <Text style={styles.resultName}>{r.roomName}</Text>
-                          <Text style={styles.resultSub}>
-                            {r.placard.use ? `${r.placard.use} · ` : ""}
-                            {buildingLabel(r.node.building)} · {floorLabel(r.node.floor)}
-                          </Text>
-                        </Pressable>
-                        <Pressable style={styles.resultDirectionsBtn} onPress={() => openDirectionsTo(r.node)}>
-                          <Text style={styles.resultDirectionsBtnText}>➜</Text>
-                        </Pressable>
-                      </View>
-                    ))}
-                  </>
-                )}
-
-                {placeResults.length > 0 && (
-                  <>
-                    <Text style={styles.resultsLabel}>Places</Text>
-                    {placeResults.map((n) => (
-                      <View key={n.id} style={styles.resultRowOuter}>
-                        <Pressable style={styles.resultRowMain} onPress={() => jumpToNode(n.id)}>
-                          <Text style={styles.resultName}>{n.name}</Text>
-                          <Text style={styles.resultSub}>
-                            {n.rooms?.length ? `Rooms: ${n.rooms.join(", ")} · ` : ""}
-                            {buildingLabel(n.building)} · {floorLabel(n.floor)}
-                          </Text>
-                        </Pressable>
-                        <Pressable style={styles.resultDirectionsBtn} onPress={() => openDirectionsTo(n)}>
-                          <Text style={styles.resultDirectionsBtnText}>➜</Text>
-                        </Pressable>
-                      </View>
-                    ))}
-                  </>
-                )}
-
-                {searchQuery.trim() && roomResults.length === 0 && placeResults.length === 0 && (
-                  <Text style={styles.panelPlaceholderText}>No room or place found for "{searchQuery}".</Text>
-                )}
-              </ScrollView>
-            )}
-
-            {panelMode === "account" && (
-              <View style={styles.accountPanelContent}>
-                <View style={styles.accountAvatarLarge}>
-                  <Text style={styles.accountAvatarLargeText}>{initials}</Text>
-                </View>
-                <Text style={styles.accountNameText} numberOfLines={1}>{displayName}</Text>
-                {role === "admin" && (
-                  <Text style={styles.adminHint}>
-                    🛠 Admin account — manage the Admin Panel from a desktop browser
-                  </Text>
-                )}
-                <View style={styles.accountDivider} />
-                <Button
-                  label="Sign out"
-                  variant="outline"
-                  size="sm"
-                  onPress={signOut}
-                  style={styles.accountBtnFull}
-                />
-              </View>
-            )}
-          </View>
-        </>
-      )}
-
-      {/* ---------- Persistent bottom Building selector — hidden while
-          a bottom sheet (room/directions) is occupying that space. ---------- */}
-      {panelMode !== "room" && panelMode !== "directions" && (
-        <>
-          {/* Stacked above the building selector, not beside it — that
-              selector spans the full bottom-bar width, so sharing its row
-              would mean overlapping it. 44 is the building trigger's own
-              height, +12 for a gap between the two. */}
+      {/* ---------- Bottom corners, above the nav: AR view (left) and the
+          gyro look-around toggle (right). The placard scanner lives in the
+          search sheet. Hidden while a sheet is up. ---------- */}
+      {!panelMode && (
+        <Animated.View
+          entering={FadeIn.duration(200)}
+          exiting={FadeOut.duration(150)}
+          style={[styles.cornerBtnWrap, { bottom: sheetBottom + 4, left: spacing.xl }]}
+        >
           <Pressable
-            style={[styles.emergencyBtnFloating, { bottom: insets.bottom + 16 + 44 + 12 }]}
-            onPress={openDirectionsToNearestExit}
-          >
-            <Text style={styles.emergencyBtnText}>🚨</Text>
-          </Pressable>
-
-          {/* Mirrors the emergency button — same stacking reasoning, same
-              vertical offset, just the opposite side. Passes the CURRENT
-              node explicitly, since this screen isn't tied to the OCR/
-              placard flow at all — it just shows whatever node you're
-              looking at right now in AR. */}
-          <Pressable
-            style={[styles.arViewerBtnFloating, { bottom: insets.bottom + 16 + 44 + 12 }]}
+            style={({ pressed }) => [styles.roundFloatingBtn, styles.largeFloatingBtn, pressed && styles.roundFloatingBtnPressed]}
             onPress={() => currentId && router.push({ pathname: "/ar-viewer", params: { nodeId: currentId } })}
+            accessibilityLabel="View in AR"
           >
-            <Text style={styles.arViewerBtnText}>AR</Text>
+            <Icon name="arView" size={24} color={colors.textSecondary} />
           </Pressable>
-
-          <View style={[styles.bottomBarWrap, { bottom: insets.bottom + 16 }]}>
-          {panelMode === "building" && (
-            <View style={styles.buildingMenu}>
-              {buildingOptions.map((b) => (
-                <Pressable
-                  key={b.id}
-                  style={styles.buildingOption}
-                  onPress={() => handleBuildingPick(b.id)}
-                >
-                  <Text
-                    style={[
-                      styles.buildingOptionText,
-                      buildingFilter === b.id && styles.buildingOptionTextActive,
-                    ]}
-                  >
-                    {b.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          )}
-
+        </Animated.View>
+      )}
+      {!panelMode && gyroAvailable && (
+        <Animated.View
+          entering={FadeIn.duration(200)}
+          exiting={FadeOut.duration(150)}
+          style={[styles.cornerBtnWrap, { bottom: sheetBottom + 4, right: spacing.xl }]}
+        >
+          {/* Compass inside the four arrows, no plate behind it; the active
+              half is dark, the other grey: black chevrons = drag to look
+              (off), dark compass = move the phone to look (on). A soft white
+              outline in the image keeps it readable over any panorama. */}
           <Pressable
-            style={styles.buildingTrigger}
-            onPress={() => setPanelMode((m) => (m === "building" ? null : "building"))}
+            style={({ pressed }) => [styles.gyroBtn, pressed && styles.gyroBtnPressed]}
+            hitSlop={6}
+            onPress={() => setGyroOn((on) => !on)}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: gyroOn }}
+            accessibilityLabel={gyroOn ? "Motion look on: move your phone to look around" : "Look around by moving your phone"}
           >
-            <Text style={styles.buildingTriggerText}>{currentBuildingLabel}</Text>
-            <Text style={styles.buildingCaret}>{panelMode === "building" ? "▴" : "▾"}</Text>
+            <Image
+              source={gyroOn ? COLOR_ICONS.gyroControl.on : COLOR_ICONS.gyroControl.off}
+              style={styles.gyroIcon}
+              resizeMode="contain"
+            />
           </Pressable>
-          </View>
-        </>
+        </Animated.View>
       )}
 
-      {/* ---------- Room detail sheet (draggable) ---------- */}
-      {panelMode === "room" && selectedRoomCard && (
-        <MobileRoomSheet
-          room={selectedRoomCard}
-          onClose={closeRoomCard}
-          onGetDirections={handleRoomGetDirections}
-          onView360={handleRoomView360}
+      {/* ---------- Sheets ---------- */}
+      {panelMode === "search" && (
+        <SearchSheet
+          query={searchQuery}
+          onChangeQuery={setSearchQuery}
+          onClose={closePanel}
+          onScan={() => {
+            closePanel();
+            router.push("/placard-scanner");
+          }}
+          inputRef={searchInputRef}
+          recentRooms={recentRooms}
+          onRemoveRecent={removeRecentRoom}
+          suggestions={randomSuggestions}
+          roomResults={roomResults}
+          placeResults={placeResults}
+          onPickRoom={openRoomCard}
+          onPickPlace={(n) => jumpToNode(n.id)}
+          bottomOffset={sheetBottom}
+          topLimit={sheetTop}
         />
       )}
 
-      {/* ---------- Directions sheet ---------- */}
+      {panelMode === "directory" && (
+        <DirectorySheet
+          nodes={nodes}
+          searchableRooms={searchableRooms}
+          currentNode={current}
+          onPickRoom={openRoomCard}
+          onPickPlace={(node) => jumpToNode(node.id)}
+          onClose={closePanel}
+          bottomOffset={sheetBottom}
+          topLimit={sheetTop}
+        />
+      )}
+
+      {panelMode === "saved" && (
+        <SavedSheet
+          saved={savedRooms.saved}
+          limit={savedRooms.limit}
+          status={savedRooms.status}
+          searchableRooms={searchableRooms}
+          onPickRoom={openRoomCard}
+          onRemove={removeSavedRoom}
+          onRetry={reloadSavedRooms}
+          onClose={closePanel}
+          bottomOffset={sheetBottom}
+          topLimit={sheetTop}
+        />
+      )}
+
+      {panelMode === "account" && (
+        <AccountSheet
+          name={profile?.name}
+          email={user?.email}
+          isAdmin={role === "admin"}
+          onSignOut={signOut}
+          onClose={closePanel}
+          bottomOffset={sheetBottom}
+          topLimit={sheetTop}
+        />
+      )}
+
+      {panelMode === "room" && selectedRoomCard && (
+        <MobileRoomSheet
+          room={selectedRoomCard}
+          saved={selectedRoomSaved}
+          onToggleSave={() => toggleSaveRoom(selectedRoomCard)}
+          onClose={closeRoomCard}
+          onGetDirections={handleRoomGetDirections}
+          onView360={handleRoomView360}
+          bottomOffset={sheetBottom}
+          topLimit={sheetTop}
+        />
+      )}
+
       {panelMode === "directions" && directions && (
         <MobileDirectionsSheet
           directions={directions}
@@ -667,34 +786,47 @@ export default function MainScreen() {
           onGetDirections={handleGetDirections}
           onStartWalking={handleStartWalking}
           onWalkNext={handleWalkToNextStop}
+          autoWalking={autoWalking}
+          onToggleAutoWalk={toggleAutoWalk}
+          onNearestExit={openDirectionsToNearestExit}
+          onDirections={switchToDirections}
           arrived={arrived}
           nextStopName={nextStopName}
           nextElevatorFloor={nextElevatorFloor}
           currentId={currentId}
+          bottomOffset={sheetBottom}
+          topLimit={sheetTop}
         />
       )}
 
-      <ElevatorPicker
-        picker={elevatorPicker}
-        routeFloor={nextElevatorFloor}
-        onRide={rideElevatorTo}
-        onClose={() => setElevatorPicker(null)}
-      />
+      {/* ---------- The bottom nav: every menu, one floating pill ---------- */}
+      <BottomNav active={panelMode === "directions" ? "directions" : panelMode ? activeTab : null} onPress={handleTab} bottom={navBottom} />
 
+      {elevatorPicker && (
+        <ElevatorPicker
+          picker={elevatorPicker}
+          routeFloor={nextElevatorFloor}
+          onRide={rideElevatorTo}
+          onClose={() => setElevatorPicker(null)}
+          bottomOffset={sheetBottom}
+          topLimit={sheetTop}
+        />
+      )}
+
+      <ToastHost top={sheetTop} />
+
+      {flyover && (
+        <FlyoverPanel
+          flyover={flyover}
+          onComplete={completeFlyover}
+          onCancel={cancelFlyover}
+          bottomOffset={sheetBottom}
+          topLimit={sheetTop}
+        />
+      )}
     </View>
   );
 }
-
-// Shared recipe for the floating chrome buttons in the top bar (back /
-// placard / account sit on the map over the panorama).
-const FLOATING_BTN = {
-  borderWidth: 1,
-  borderColor: colors.border,
-  backgroundColor: colors.surface,
-  alignItems: "center",
-  justifyContent: "center",
-  ...shadows.floating,
-};
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
@@ -705,202 +837,36 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  panoramaPlaceholderText: { ...typography.caption, textAlign: "center", lineHeight: 20 },
+  panoramaPlaceholderText: { ...typography.label, textAlign: "center" },
   panoramaErrorText: { ...typography.bodySmall, color: colors.danger, textAlign: "center", paddingHorizontal: spacing.xxl },
   panoramaViewerWrap: { flex: 1, width: "100%" },
-  panoramaDebugOverlay: {
-    position: "absolute",
-    top: 90,
-    left: 0,
-    right: 0,
-    alignItems: "center",
-  },
+  panoramaStatus: { position: "absolute", top: 130, left: 0, right: 0, alignItems: "center" },
 
-  markerBanner: {
+  // A soft white plate keeps the logo legible over any panorama.
+  logoWrap: {
     position: "absolute",
-    left: 12,
-    right: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md - 2,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
+    alignSelf: "center",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xs + 2,
     borderRadius: radii.lg,
-    paddingVertical: spacing.md - 2,
-    paddingHorizontal: spacing.md,
-    ...shadows.floating,
+    backgroundColor: "rgba(255,255,255,0.88)",
   },
-  markerBannerDot: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  markerBannerIcon: { fontSize: 14 },
-  markerBannerLabel: { flex: 1, ...typography.bodySmall, color: colors.textPrimary },
-  markerBannerClose: { color: colors.textMuted, fontSize: 16, paddingHorizontal: spacing.xs },
 
-  topBar: {
+  roundFloatingBtn: {
     position: "absolute",
-    left: 12,
-    right: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-  },
-  arBtn: { ...FLOATING_BTN, height: 40, paddingHorizontal: spacing.md + 2, borderRadius: radii.lg },
-  arBtnText: { ...typography.button, fontSize: 12, color: colors.primary },
-
-  emergencyBtnFloating: {
-    position: "absolute",
-    left: 12,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: colors.emergency,
-    backgroundColor: colors.emergencyTint,
-    alignItems: "center",
-    justifyContent: "center",
-    ...shadows.floating,
-  },
-  emergencyBtnText: { fontSize: 18 },
-
-  arViewerBtnFloating: {
-    position: "absolute",
-    right: 12,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    backgroundColor: colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    ...shadows.floating,
-  },
-  arViewerBtnText: { ...typography.button, fontSize: 13, color: colors.primary },
-
-  backBtn: { ...FLOATING_BTN, width: 40, height: 40, borderRadius: radii.lg },
-  backBtnText: { color: colors.textPrimary, fontSize: 16 },
-
-  searchBar: {
-    flex: 1,
-    height: 40,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    justifyContent: "center",
-    paddingHorizontal: spacing.md + 2,
-    ...shadows.floating,
-  },
-  searchInput: { ...typography.bodySmall, color: colors.textPrimary, fontSize: 14, padding: 0 },
-
-  accountBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.92)",
     ...shadows.floating,
   },
-  accountBtnText: { ...typography.button, fontSize: 13, color: colors.textOnPrimary },
+  roundFloatingBtnPressed: { backgroundColor: colors.iconButton },
+  largeFloatingBtn: { position: "relative", width: 50, height: 50, borderRadius: 25 },
+  cornerBtnWrap: { position: "absolute" },
+  gyroBtn: { width: 76, height: 76, alignItems: "center", justifyContent: "center" },
+  gyroBtnPressed: { opacity: 0.6 },
+  gyroIcon: { width: 76, height: 76 },
 
-  topPanelBackdrop: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: colors.scrim,
-  },
-  topPanel: {
-    position: "absolute",
-    left: 12,
-    right: 12,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.lg,
-    padding: spacing.lg,
-    ...shadows.floating,
-  },
-  panelPlaceholderText: { ...typography.bodySmall, color: colors.textMuted, textAlign: "center", paddingVertical: spacing.sm },
-
-  searchResultsScroll: { maxHeight: 360 },
-  resultsLabel: { ...typography.eyebrow, marginTop: spacing.md - 2, marginBottom: spacing.xs },
-  resultRowOuter: { flexDirection: "row", alignItems: "center", gap: spacing.xs + 2 },
-  resultRowMain: { flex: 1, paddingVertical: spacing.md - 2, paddingHorizontal: spacing.xs, borderRadius: radii.md },
-  resultDirectionsBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceSunken,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  resultDirectionsBtnText: { color: colors.primary, fontSize: 14 },
-  resultName: { ...typography.bodySmall, color: colors.textPrimary, fontSize: 14, marginBottom: 2 },
-  resultSub: { ...typography.caption },
-
-  accountPanelContent: { alignItems: "center", gap: spacing.md - 2, paddingVertical: spacing.xs },
-  accountAvatarLarge: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  accountAvatarLargeText: { fontFamily: fontFamily.display, fontSize: 18, color: colors.textOnPrimary },
-  accountNameText: { ...typography.bodySemiBold, maxWidth: "100%" },
-  adminHint: { ...typography.caption, textAlign: "center", paddingHorizontal: spacing.sm, lineHeight: 15 },
-  accountDivider: {
-    width: "100%",
-    height: 1,
-    backgroundColor: colors.border,
-    marginTop: spacing.xs,
-  },
-  accountBtnFull: { width: "100%" },
-
-  bottomBarWrap: { position: "absolute", left: 12, right: 12 },
-  buildingTrigger: {
-    height: 44,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md + 2,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    ...shadows.floating,
-  },
-  buildingTriggerText: { ...typography.bodySmall, color: colors.textPrimary, fontSize: 14 },
-  buildingCaret: { color: colors.textMuted, fontSize: 12 },
-  // Opens UPWARD unconditionally, same reasoning as the web mobile version:
-  // this trigger sits at the bottom edge of the screen, so a menu that
-  // opened downward would run off-screen.
-  buildingMenu: {
-    position: "absolute",
-    bottom: "100%",
-    left: 0,
-    right: 0,
-    marginBottom: spacing.sm,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.lg,
-    padding: spacing.xs + 2,
-    ...shadows.floating,
-  },
-  buildingOption: { paddingVertical: spacing.md - 2, paddingHorizontal: spacing.md, borderRadius: radii.md },
-  buildingOptionText: { ...typography.bodySmall, color: colors.textPrimary, fontSize: 14 },
-  buildingOptionTextActive: { color: colors.primary, fontFamily: fontFamily.displaySemiBold },
 });

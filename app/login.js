@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { useRef, useState } from "react";
+import { StyleSheet } from "react-native";
 import { Link, useRouter } from "expo-router";
 import { useAuth } from "../src/context/useAuth";
 import { colors, typography, spacing } from "../src/theme";
@@ -7,6 +7,8 @@ import ScreenContainer from "../src/components/ScreenContainer";
 import FormField from "../src/components/FormField";
 import Button from "../src/components/Button";
 import ErrorDialog from "../src/components/ErrorDialog";
+import { AuthHeader, AuthLinks } from "../src/components/AuthParts";
+import ServerSetting from "../src/components/ServerSetting";
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -15,8 +17,10 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const passwordRef = useRef(null);
 
   const handleSubmit = async () => {
+    if (submitting) return;
     setError("");
     setSubmitting(true);
     try {
@@ -35,57 +39,55 @@ export default function LoginScreen() {
 
   return (
     <ScreenContainer keyboardAvoiding>
-      <Text style={styles.title}>Sign in</Text>
+      <AuthHeader logo title="Sign in" subtitle="Use your @sdca.edu.ph account to explore the campus." />
 
       <FormField
         label="Email"
+        icon="email"
         value={email}
         onChangeText={setEmail}
         autoCapitalize="none"
         autoCorrect={false}
+        autoComplete="email"
         keyboardType="email-address"
         placeholder="you@sdca.edu.ph"
+        returnKeyType="next"
+        onSubmitEditing={() => passwordRef.current?.focus()}
+        submitBehavior="submit"
       />
 
       <FormField
         label="Password"
+        icon="lock"
+        inputRef={passwordRef}
         value={password}
         onChangeText={setPassword}
         secureTextEntry
+        autoComplete="current-password"
+        returnKeyType="go"
+        onSubmitEditing={handleSubmit}
+        containerStyle={styles.passwordField}
       />
+      <Link href="/forgot-password" style={styles.forgot}>
+        Forgot password?
+      </Link>
 
-      <Button
-        label={submitting ? "Signing in…" : "Sign in"}
-        onPress={handleSubmit}
-        loading={submitting}
-        style={styles.submit}
-      />
+      <ErrorDialog visible={!!error} title="Couldn't sign in" message={error} onDismiss={() => setError("")} />
 
-      <View style={styles.linksRow}>
-        <Link href="/forgot-password" style={styles.link}>Forgot password?</Link>
-        <Text style={styles.linkSep}> · </Text>
-        <Link href="/forgot-email" style={styles.link}>Forgot email?</Link>
-      </View>
-      <View style={styles.linksRow}>
-        <Text style={styles.linkPlain}>Need an account? </Text>
-        <Link href="/register" style={styles.link}>Register</Link>
-      </View>
+      <Button label={submitting ? "Signing in…" : "Sign in"} onPress={handleSubmit} loading={submitting} />
 
-      <ErrorDialog
-        visible={!!error}
-        title="Couldn't sign in"
-        message={error}
-        onDismiss={() => setError("")}
-      />
+      <AuthLinks items={["Need an account?", { href: "/register", label: "Register" }]} style={styles.firstLinks} />
+      <AuthLinks items={[{ href: "/forgot-email", label: "Forgot your email?" }]} style={styles.links} />
+
+      {/* The development build only (renders nothing otherwise). */}
+      <ServerSetting />
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  title: { ...typography.hero, marginBottom: spacing.xxl, textAlign: "center" },
-  submit: { marginTop: spacing.sm },
-  linksRow: { flexDirection: "row", justifyContent: "center", marginTop: spacing.lg },
-  link: { ...typography.bodySmall, color: colors.textLink },
-  linkSep: { ...typography.bodySmall, color: colors.textSubtle },
-  linkPlain: { ...typography.bodySmall, color: colors.textMuted },
+  passwordField: { marginBottom: spacing.sm },
+  forgot: { ...typography.label, color: colors.textLink, alignSelf: "flex-end", marginBottom: spacing.xl },
+  firstLinks: { marginTop: spacing.xl },
+  links: { marginTop: spacing.md },
 });

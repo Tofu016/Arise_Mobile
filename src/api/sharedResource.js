@@ -1,4 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
+import { onServerChange } from "./serverAddress";
 
 // Data that several screens read (all nodes, all placard dialogs), fetched
 // once and shared, instead of every hook call firing its own request —
@@ -67,6 +68,14 @@ export function createSharedResource(load, { maxAgeMs = 5 * 60 * 1000 } = {}) {
   function getData() {
     return state.data;
   }
+
+  // Switched to another server (serverAddress.js): forget this one's data;
+  // the next screen that needs it loads it afresh.
+  onServerChange(() => {
+    inFlight = null;
+    loadedAt = 0;
+    setState({ data: null, error: null });
+  });
 
   return { useResource, refresh, getData };
 }

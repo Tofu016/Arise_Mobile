@@ -1,12 +1,13 @@
-import { useState } from "react";
-import { View, Text, StyleSheet } from "react-native";
-import { Link, useRouter } from "expo-router";
+import { useRef, useState } from "react";
+import { StyleSheet } from "react-native";
+import { useRouter } from "expo-router";
 import { useAuth } from "../src/context/useAuth";
-import { colors, typography, spacing } from "../src/theme";
+import { spacing } from "../src/theme";
 import ScreenContainer from "../src/components/ScreenContainer";
 import FormField from "../src/components/FormField";
 import Button from "../src/components/Button";
 import ErrorDialog from "../src/components/ErrorDialog";
+import { AuthHeader, AuthLinks } from "../src/components/AuthParts";
 
 const ALLOWED_DOMAIN = "@sdca.edu.ph";
 
@@ -19,8 +20,12 @@ export default function RegisterScreen() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const emailRef = useRef(null);
+  const passwordRef = useRef(null);
+  const confirmRef = useRef(null);
 
   const handleSubmit = async () => {
+    if (submitting) return;
     setError("");
     const trimmedEmail = email.trim().toLowerCase();
 
@@ -59,67 +64,77 @@ export default function RegisterScreen() {
 
   return (
     <ScreenContainer keyboardAvoiding>
-      <Text style={styles.title}>Create an account</Text>
-      <Text style={styles.hint}>Registration requires an {ALLOWED_DOMAIN} email address.</Text>
+      <AuthHeader
+        logo
+        title="Create an account"
+        subtitle={`Registration needs an ${ALLOWED_DOMAIN} email address. An admin approves new accounts.`}
+      />
 
       <FormField
         label="Name"
+        icon="person"
         value={name}
         onChangeText={setName}
         placeholder="Juan Dela Cruz"
+        autoComplete="name"
+        returnKeyType="next"
+        onSubmitEditing={() => emailRef.current?.focus()}
+        submitBehavior="submit"
       />
 
       <FormField
         label="Email"
+        icon="email"
+        inputRef={emailRef}
         value={email}
         onChangeText={setEmail}
         autoCapitalize="none"
         autoCorrect={false}
+        autoComplete="email"
         keyboardType="email-address"
         placeholder={`you${ALLOWED_DOMAIN}`}
+        returnKeyType="next"
+        onSubmitEditing={() => passwordRef.current?.focus()}
+        submitBehavior="submit"
       />
 
       <FormField
         label="Password"
+        icon="lock"
+        inputRef={passwordRef}
         value={password}
         onChangeText={setPassword}
         secureTextEntry
+        autoComplete="new-password"
+        hint="At least 8 characters."
+        returnKeyType="next"
+        onSubmitEditing={() => confirmRef.current?.focus()}
+        submitBehavior="submit"
       />
 
       <FormField
         label="Confirm password"
+        icon="lock"
+        inputRef={confirmRef}
         value={confirmPassword}
         onChangeText={setConfirmPassword}
         secureTextEntry
+        autoComplete="new-password"
+        returnKeyType="go"
+        onSubmitEditing={handleSubmit}
+        containerStyle={styles.lastField}
       />
 
-      <Button
-        label={submitting ? "Creating account…" : "Register"}
-        onPress={handleSubmit}
-        loading={submitting}
-        style={styles.submit}
-      />
+      <ErrorDialog visible={!!error} title="Couldn't register" message={error} onDismiss={() => setError("")} />
 
-      <View style={styles.linksRow}>
-        <Text style={styles.linkPlain}>Already have an account? </Text>
-        <Link href="/login" style={styles.link}>Log in</Link>
-      </View>
+      <Button label={submitting ? "Creating account…" : "Register"} onPress={handleSubmit} loading={submitting} />
 
-      <ErrorDialog
-        visible={!!error}
-        title="Couldn't register"
-        message={error}
-        onDismiss={() => setError("")}
-      />
+      <AuthLinks items={["Already have an account?", { href: "/login", label: "Sign in" }]} style={styles.links} />
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  title: { ...typography.h1, marginBottom: spacing.xs + 2, textAlign: "center" },
-  hint: { ...typography.caption, textAlign: "center", marginBottom: spacing.xl },
-  submit: { marginTop: spacing.sm },
-  linksRow: { flexDirection: "row", justifyContent: "center", marginTop: spacing.lg },
-  link: { ...typography.bodySmall, color: colors.textLink },
-  linkPlain: { ...typography.bodySmall, color: colors.textMuted },
+  lastField: { marginBottom: spacing.xl },
+  links: { marginTop: spacing.xl },
 });

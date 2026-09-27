@@ -37,13 +37,15 @@ export function floorLabel(floor) {
 // Point-of-interest markers placed *within* a panorama at a fixed yaw/pitch —
 // distinct from hotspots (which navigate to a different node). "elevator"
 // is the one interactive kind: tapping a landing rides to another floor
-// (see utils/elevators.js). Same icons/colors as the web app.
+// (see utils/elevators.js). Same colours as the web app (Arise_Web
+// constants.js). Web's icons are still a "?" placeholder, so `glyph` is a
+// Material Community Icons name drawn in white on the coloured dot.
 export const MARKER_TYPES = [
-  { id: "room", label: "Room", icon: "🚪", color: "#4a9eff" },
-  { id: "facility", label: "Facility", icon: "📍", color: "#4affa0" },
-  { id: "exit", label: "Emergency Exit", icon: "🚨", color: "#ff4a4a" },
-  { id: "hydrant", label: "Fire Hydrant / Extinguisher", icon: "🧯", color: "#ff9a3d" },
-  { id: "elevator", label: "Elevator", icon: "🛗", color: "#5b3fa0" },
+  { id: "room", label: "Room", glyph: "door", color: "#2f6db0" },
+  { id: "facility", label: "Facility", glyph: "map-marker", color: "#2e7d46" },
+  { id: "exit", label: "Emergency Exit", glyph: "exit-run", color: "#c62a2c" },
+  { id: "hydrant", label: "Fire Hydrant / Extinguisher", glyph: "fire-extinguisher", color: "#b5701c" },
+  { id: "elevator", label: "Elevator", glyph: "elevator-passenger", color: "#5b3fa0" },
 ];
 
 export function markerTypeInfo(typeId) {

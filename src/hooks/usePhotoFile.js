@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import * as FileSystem from "expo-file-system/legacy";
 import { photoUrl } from "../api/client";
+import { onServerChange } from "../api/serverAddress";
 
 // A Photo as a local file:// URI — for the panorama viewer (expo-gl decodes
 // the file natively, see usePanoramaImage.js) and for ViroReact's
@@ -21,6 +22,11 @@ import { photoUrl } from "../api/client";
 // panorama viewer and at 1024px in AR).
 const downloaded = new Map(); // "path@width" -> file URI
 const inFlight = new Map(); // "path@width" -> Promise<file URI>
+// Another server's photos may share these paths: start over on a switch.
+onServerChange(() => {
+  downloaded.clear();
+  inFlight.clear();
+});
 
 function keyFor(photo, width) {
   return `${photo}@${width ?? "default"}`;
