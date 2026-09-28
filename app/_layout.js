@@ -91,7 +91,7 @@ const SCREEN_OPTIONS = {
 // past MAX_MS from launch: the screen behind it shows its own
 // loading/error state from there. Shown once per launch only — signing
 // out later doesn't bring it back.
-const STARTUP_MIN_MS = 3000; // the logo animation (~1.8 s) plus a moment on the finished logo
+const STARTUP_MIN_MS = 3300; // the logo animation (~2.3 s) plus a moment on the finished logo
 const STARTUP_MAX_MS = 12000;
 
 // Only mounted when the tour will need the nodes, so a signed-out launch

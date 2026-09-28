@@ -5,21 +5,23 @@ import * as SplashScreen from "expo-splash-screen";
 import AriseLogo, { ARISE_LOGO_DURATION_MS } from "./AriseLogo";
 import { colors, typography, spacing } from "../theme";
 
-// The startup screen: the ARISE logo animating from its compact form (the
-// app icon, which the native splash shows) into the full typed-out logo,
+// The startup screen: the ARISE logo animating from its neutral form (the
+// square with the AR button — the app icon's shape, which the native splash
+// shows) into the full typed-out logo,
 // while the app gets ready (see StartupGate in app/_layout.js), then fading
 // out once it is.
 //
 // It takes over from the native splash only once the logo's button image
 // has loaded (onShown) — in a development build it comes from Metro over
 // the network, and a half-built screen shouldn't flash up first. The
-// compact logo is drawn at the same size and place as the splash's
-// (SPLASH_LOGO_WIDTH), so the hand-over is invisible and the animation
+// neutral square is drawn at the same size and place as the splash's
+// (see LOGO_WIDTH), so the hand-over is invisible and the animation
 // seems to start from the splash itself. A fallback timer shows it anyway
 // if the image never reports in.
 const SHOW_FALLBACK_MS = 2500;
-// The expanded logo's width; the compact one is 695/1470 of it = 142dp,
-// which is app.json's expo-splash-screen imageWidth. Change both together.
+// The expanded logo's width; the neutral square is NEUTRAL_WIDTH_RATIO
+// (600.8/1470.5) of it = 123dp, which is app.json's expo-splash-screen
+// imageWidth. Change both together.
 const LOGO_WIDTH = 300;
 
 export default function StartupScreen({ onShown }) {

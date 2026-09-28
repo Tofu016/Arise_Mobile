@@ -11,7 +11,7 @@
       "package": "com.arise.campusnavigator",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#FFFFFF"
+        "backgroundColor": "#625C5E"
       },
       "permissions": [
         "android.permission.CAMERA",
@@ -63,7 +63,7 @@
         {
           "backgroundColor": "#FFFFFF",
           "image": "./assets/splash-icon.png",
-          "imageWidth": 142
+          "imageWidth": 123
         }
       ],
       "expo-secure-store"
