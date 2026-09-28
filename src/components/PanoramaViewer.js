@@ -12,7 +12,15 @@ import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { markerTypeInfo } from "../utils/constants";
-import { toPosition, overlayScale, markerScale, isFacing, previewScale } from "../utils/panoramaMath";
+import {
+  toPosition,
+  overlayScale,
+  markerScale,
+  isFacing,
+  previewScale,
+  clampZoom,
+  zoomedFov,
+} from "../utils/panoramaMath";
 import { reportMaxTextureSize } from "../hooks/usePanoramaImage";
 import { useHotspotPreview } from "../hooks/useHotspotPreview";
 import { DeviceMotion, deviceLook, angleDelta } from "../utils/deviceLook";
@@ -66,6 +74,9 @@ const CROSSFADE_MS = 450; // the old photo dissolves over the new one
 const WALK_ZOOM_FOV = 45; // how far in the step forward zooms
 const JUMP_ZOOM_FOV = 62; // a jump or ride only settles in gently
 const GYRO_SMOOTHING = 0.35;
+// Zoom: how much of the way to the zoom level's FOV the lens eases each
+// frame (smooths the pinch without making it feel laggy).
+const ZOOM_EASE = 0.3;
 // Markers likewise, a little.
 const MARKER_SIZE_BOOST = 1.25;
 // A tap this close (px) to a tappable marker's dot, or on its label, hits it.
@@ -97,8 +108,12 @@ const easeOut = (t) => 1 - Math.pow(1 - t, 3);
 //   turnRef — { from, to: { yaw, pitch }, start, duration }: eases the view
 //             round (written into rotationRef, so a drag afterwards carries
 //             on from wherever it ended)
-//   lensRef — { from, to, start, duration }: eases the field of view (zoom)
-function CameraRig({ rotationRef, turnRef, lensRef }) {
+//   lensRef — { from, to, start, duration, hold }: eases the field of view
+//             for a move; `hold` keeps it at `to` afterwards, until the
+//             next photo replaces it
+//   zoomRef — the visitor's pinch-zoom level: between moves the lens
+//             eases toward its FOV
+function CameraRig({ rotationRef, turnRef, lensRef, zoomRef }) {
   const { camera } = useThree();
   useFrame(() => {
     const now = Date.now();
@@ -120,7 +135,14 @@ function CameraRig({ rotationRef, turnRef, lensRef }) {
         camera.fov = fov;
         camera.updateProjectionMatrix();
       }
-      if (t >= 1) lensRef.current = null;
+      if (t >= 1 && !lens.hold) lensRef.current = null;
+    } else {
+      const target = zoomedFov(FOV, zoomRef.current);
+      const diff = target - camera.fov;
+      if (diff !== 0) {
+        camera.fov = Math.abs(diff) < 0.01 ? target : camera.fov + diff * ZOOM_EASE;
+        camera.updateProjectionMatrix();
+      }
     }
     // YXZ order (yaw around Y first, then pitch around X) is the standard
     // rotation order for a first-person-style look-around camera — avoids
@@ -463,6 +485,11 @@ export default function PanoramaViewer({
   const gyroRef = useRef(null); // { yaw, pitch } smoothed, or null before the first reading
   const gyroOffsetRef = useRef({ yaw: 0, pitch: 0 });
   const startGyroOffsetRef = useRef({ yaw: 0, pitch: 0 });
+  // Pinch zoom (1 = normal), kept in a ref like the rotation, so a pinch
+  // never re-renders anything.
+  const zoomRef = useRef(1);
+  const pinchRef = useRef(null); // { dist, zoom } while two fingers are down
+  const pinchedRef = useRef(false); // this touch pinched, so it isn't a tap
   // id -> hit mesh, populated by each Hotspot's own ref callback.
   const hotspotMeshMapRef = useRef(new Map());
   // Populated via Canvas's onCreated — gives access to the live camera/size
@@ -533,7 +560,7 @@ export default function PanoramaViewer({
         };
       }
       const fov = r3fStateRef.current?.camera.fov ?? FOV;
-      lensRef.current = { from: fov, to: WALK_ZOOM_FOV, start: now, duration: APPROACH_MS };
+      lensRef.current = { from: fov, to: WALK_ZOOM_FOV, start: now, duration: APPROACH_MS, hold: true };
       approachUntilRef.current = now + APPROACH_MS;
     } else {
       approachUntilRef.current = now;
@@ -571,6 +598,10 @@ export default function PanoramaViewer({
       // In gyro mode, re-aim it so the new panorama opens facing the same
       // way (the phone's tilt stays the phone's).
       if (gyroRef.current) gyroOffsetRef.current = { yaw: cameraYawFor(yaw) - gyroRef.current.yaw, pitch: 0 };
+
+      // Every spot opens at the normal zoom.
+      zoomRef.current = 1;
+      lensRef.current = null;
 
       if (previous) {
         leavingRef.current?.dispose(); // a fade still running from a quick earlier move
@@ -682,18 +713,47 @@ export default function PanoramaViewer({
   // events at all, which is exactly what happened trying gesture-handler
   // for the drag. Tappable markers are child views, so they claim their own
   // touches first; everything else lands here.
-  const handleResponderGrant = (evt) => {
-    const { pageX, pageY } = evt.nativeEvent;
+  // Two fingers pinch to zoom; one drags to look.
+  const startDrag = (pageX, pageY) => {
     startTouchRef.current = { x: pageX, y: pageY };
     startRotationRef.current = { ...rotationRef.current };
     startGyroOffsetRef.current = { ...gyroOffsetRef.current };
   };
 
+  const endPinch = () => {
+    pinchRef.current = null;
+  };
+
+  const handleResponderGrant = (evt) => {
+    const { pageX, pageY } = evt.nativeEvent;
+    pinchRef.current = null;
+    pinchedRef.current = false;
+    startDrag(pageX, pageY);
+  };
+
   const handleResponderMove = (evt) => {
+    const { touches = [] } = evt.nativeEvent;
+    if (touches.length >= 2) {
+      const dist = Math.hypot(touches[0].pageX - touches[1].pageX, touches[0].pageY - touches[1].pageY);
+      pinchedRef.current = true;
+      if (!pinchRef.current) pinchRef.current = { dist: Math.max(1, dist), zoom: zoomRef.current };
+      else zoomRef.current = clampZoom(pinchRef.current.zoom * (dist / pinchRef.current.dist));
+      return;
+    }
+    if (pinchRef.current) {
+      // One finger lifted: carry on as a drag from where it is now, rather
+      // than jumping to where the first finger started.
+      endPinch();
+      if (touches[0]) startDrag(touches[0].pageX, touches[0].pageY);
+      return;
+    }
     const { pageX, pageY } = evt.nativeEvent;
     const dx = pageX - startTouchRef.current.x;
     const dy = pageY - startTouchRef.current.y;
-    const sensitivity = 0.15;
+    // Zoomed in, a drag turns the view less, so the scene still follows
+    // the finger.
+    const fov = r3fStateRef.current?.camera.fov ?? FOV;
+    const sensitivity = 0.15 * (fov / FOV);
     // Gyro mode: a drag shifts the phone's view instead of replacing it.
     if (gyroEnabled && gyroRef.current) {
       gyroOffsetRef.current = {
@@ -717,6 +777,8 @@ export default function PanoramaViewer({
   // a drag-to-look. On a genuine tap, raycasts from the tapped point through
   // the camera to see which hotspot (if any) was hit, and walks there.
   const handleResponderRelease = (evt) => {
+    endPinch();
+    if (pinchedRef.current) return; // a pinch, not a tap
     const { pageX, pageY, locationX, locationY } = evt.nativeEvent;
     const dx = pageX - startTouchRef.current.x;
     const dy = pageY - startTouchRef.current.y;
@@ -760,6 +822,7 @@ export default function PanoramaViewer({
       onResponderGrant={handleResponderGrant}
       onResponderMove={handleResponderMove}
       onResponderRelease={handleResponderRelease}
+      onResponderTerminate={endPinch}
     >
       <Canvas
         camera={{ position: [0, 0, 0.1], fov: FOV }}
@@ -770,7 +833,7 @@ export default function PanoramaViewer({
           reportMaxTextureSize(state.gl.capabilities.maxTextureSize);
         }}
       >
-        <CameraRig rotationRef={rotationRef} turnRef={turnRef} lensRef={lensRef} />
+        <CameraRig rotationRef={rotationRef} turnRef={turnRef} lensRef={lensRef} zoomRef={zoomRef} />
         {shown ? (
           <PanoramaSphere texture={shown.texture} />
         ) : (

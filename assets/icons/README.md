@@ -16,6 +16,9 @@ Native doesn't render reliably, so each icon is exported to PNG instead:
 - `color/gyro-control-on.png` / `-off.png` are the gyro toggle: the
   board's compass inside its four arrows, combined, with a soft white
   outline. They're shown as-is through `COLOR_ICONS` in `Icon.js`.
+- `color/joystick-base.png` / `joystick-knob.png` are `gyro-control-off.png`
+  cut in two (the chevrons; the compass), for the AR screen's joystick
+  (`src/components/ArJoystick.js`).
 - Only the icons the app shows are exported; the rest of the board's set
   is in the designer's SVG exports if it's ever needed.
 

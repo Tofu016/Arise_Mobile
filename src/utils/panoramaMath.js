@@ -42,6 +42,25 @@ export function overlayScale(width, height, fov) {
   return (Math.min(width, height) / OVERLAY_REF_HEIGHT) * (OVERLAY_REF_PX_PER_UNIT / pxPerUnit);
 }
 
+// Pinch zoom — web's kiosk zoom: `zoom` multiplies the apparent magnification
+// (1 = the normal view, >1 zoomed in, <1 zoomed out). Applied to the
+// vertical FOV through its tangent, which is what magnification actually
+// scales, and clamped so zooming out stops short of fisheye.
+export const MIN_ZOOM = 0.7;
+export const MAX_ZOOM = 3;
+const ZOOMED_MIN_FOV = 20;
+const ZOOMED_MAX_FOV = 165;
+
+export function clampZoom(zoom) {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
+}
+
+export function zoomedFov(baseFov, zoom) {
+  const halfRad = (baseFov * Math.PI) / 360;
+  const fov = (2 * Math.atan(Math.tan(halfRad) / clampZoom(zoom)) * 180) / Math.PI;
+  return Math.min(ZOOMED_MAX_FOV, Math.max(ZOOMED_MIN_FOV, fov));
+}
+
 // Markers (HTML overlays on web) scale with the screen's shorter side alone.
 export function markerScale(width, height) {
   return Math.min(1.5, Math.max(0.75, Math.min(width, height) / 1080));

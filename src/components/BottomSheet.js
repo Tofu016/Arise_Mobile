@@ -5,6 +5,7 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   useAnimatedKeyboard,
+  useAnimatedReaction,
   withSpring,
   withTiming,
   runOnJS,
@@ -50,6 +51,10 @@ import { colors, radii, spacing, shadows } from "../theme";
 //                       The sheet waits for the first measurement before
 //                       sliding up, so it opens at the right size, and then
 //                       follows the content as it grows or shrinks.
+//   visibleHeight     — optional shared value (useSharedValue(0)) the sheet
+//                       keeps set to how tall it shows above bottomOffset,
+//                       frame by frame (slide-in and drags included), so a
+//                       control can ride on top of it.
 //
 // Motion: the sheet slides up on mount and down on unmount (so switching
 // sheets is a smooth hand-over), and settles
@@ -80,6 +85,7 @@ export default function BottomSheet({
   fitContent = false,
   avoidKeyboard = false,
   contentHeight,
+  visibleHeight,
   style,
 }) {
   const { height: windowHeight } = useWindowDimensions();
@@ -177,6 +183,15 @@ export default function BottomSheet({
   // The keyboard's height, frame by frame as it slides (UI thread), so the
   // sheet rises in step with it.
   const keyboard = useAnimatedKeyboard({ isStatusBarTranslucentAndroid: true, isNavigationBarTranslucentAndroid: true });
+
+  // Mirror how much of the sheet shows above bottomOffset, for a caller
+  // that floats something on top of it.
+  useAnimatedReaction(
+    () => Math.max(0, Math.min(height.value, windowHeight - topLimit - bottomOffset) - slide.value),
+    (shownHeight) => {
+      if (visibleHeight) visibleHeight.value = shownHeight;
+    }
+  );
 
   const animatedStyle = useAnimatedStyle(() => {
     // How far to lift the sheet so its bottom clears the keyboard, and the
