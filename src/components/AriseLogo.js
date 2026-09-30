@@ -29,6 +29,8 @@ import Animated, {
 //
 // width: the EXPANDED logo's width; the neutral square is 600.8/1470.5 of it.
 // play:  start the animation (it holds on the neutral square until then).
+// rewind: play it backwards, back to the neutral square
+//        (ARISE_LOGO_REWIND_MS).
 // onLoad: the button image is ready — the neutral square can be shown.
 
 // Every position below is in the SVGs' own units, relative to the expanded
@@ -72,6 +74,9 @@ const TYPE_START_MS = EXPAND_START_MS + EXPAND_MS + 120;
 const LETTER_GAP_MS = 110;
 const LETTER_MS = 200;
 export const ARISE_LOGO_DURATION_MS = TYPE_START_MS + LETTER_GAP_MS * (LETTERS.length - 1) + LETTER_MS;
+// `rewind` plays the same timeline backwards (no opening hold): E…A
+// un-type, the frame folds back, the button returns to the neutral square.
+export const ARISE_LOGO_REWIND_MS = ARISE_LOGO_DURATION_MS - HOLD_MS;
 // The neutral square's share of the expanded width — the native splash
 // shows it at LOGO_WIDTH × this (see StartupScreen / app.json).
 export const NEUTRAL_WIDTH_RATIO = FRAME.neutral.width / BOX_W;
@@ -105,7 +110,7 @@ function Letter({ letter, index, typed, s }) {
   );
 }
 
-export default function AriseLogo({ width = 300, play = false, still = false, onLoad, style }) {
+export default function AriseLogo({ width = 300, play = false, rewind = false, still = false, onLoad, style }) {
   const s = width / BOX_W; // dp per SVG unit
   const intro = useSharedValue(still ? 1 : 0);
   const expand = useSharedValue(still ? 1 : 0);
@@ -134,6 +139,20 @@ export default function AriseLogo({ width = 300, play = false, still = false, on
       })
     );
   }, [play, still, intro, expand, typed]);
+
+  // The same timeline backwards, from wherever it has got to.
+  useEffect(() => {
+    if (!rewind) return;
+    const ease = Easing.inOut(Easing.cubic);
+    const untype = LETTER_GAP_MS * (LETTERS.length - 1) + LETTER_MS;
+    const foldStart = untype + (TYPE_START_MS - EXPAND_START_MS - EXPAND_MS);
+    typed.value = withTiming(0, { duration: untype, easing: Easing.linear });
+    expand.value = withDelay(foldStart, withTiming(0, { duration: EXPAND_MS, easing: ease }));
+    intro.value = withDelay(
+      foldStart + EXPAND_MS + START_HOLD_MS,
+      withTiming(0, { duration: INTRO_MS, easing: ease })
+    );
+  }, [rewind, intro, expand, typed]);
 
   const frameStyle = useAnimatedStyle(() => ({
     left: place("left", FRAME, intro.value, expand.value) * s,

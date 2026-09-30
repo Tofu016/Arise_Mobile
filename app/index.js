@@ -26,7 +26,7 @@ import AccountSheet from "../src/components/AccountSheet";
 import SavedSheet from "../src/components/SavedSheet";
 import ToastHost, { showToast } from "../src/components/Toast";
 import BottomNav, { NAV_HEIGHT } from "../src/components/BottomNav";
-import BrandLogo from "../src/components/BrandLogo";
+import TopLogo from "../src/components/TopLogo";
 import Icon, { COLOR_ICONS } from "../src/components/Icon";
 import { isGyroAvailable } from "../src/utils/deviceLook";
 import { colors, typography, radii, spacing, shadows } from "../src/theme";
@@ -645,10 +645,11 @@ export default function MainScreen() {
         )}
       </View>
 
-      {/* ---------- Top: the logo, centred (brand board: nothing else up
-          here, to leave the panorama clear). ---------- */}
+      {/* ---------- Top: the logo, centred — SDCA and ARISE taking turns
+          (see TopLogo). Brand board: nothing else up here, to leave the
+          panorama clear. ---------- */}
       <View style={[styles.logoWrap, { top: insets.top + 10 }]} pointerEvents="none">
-        <BrandLogo />
+        <TopLogo />
       </View>
 
       {/* ---------- Bottom corners, above the nav: AR view (left) and the

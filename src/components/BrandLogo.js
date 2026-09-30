@@ -9,6 +9,8 @@ import { Image } from "react-native";
 const LOGO = require("../../assets/logos/sdca-logo-horizontal.png");
 const WIDTH = 150;
 const ASPECT = 1200 / 341;
+export const BRAND_LOGO_WIDTH = WIDTH;
+export const BRAND_LOGO_ASPECT = ASPECT;
 
 export default function BrandLogo({ scale = 1, style }) {
   const width = WIDTH * scale;
