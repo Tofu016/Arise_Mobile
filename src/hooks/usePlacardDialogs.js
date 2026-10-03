@@ -27,19 +27,9 @@ function toFrontendDialog(row) {
   };
 }
 
-// Rewritten to call PlacardDialogs_API instead of a live Firestore
-// subscription — same upsert-by-name semantics as the web app's own
-// equivalent hook (create() and update() are genuinely separate
-// backend endpoints; this hook is what bridges "save this room" into
-// whichever one actually applies, exactly as the web version does).
-//
-// create()/update() on the backend both require an admin-authenticated
-// session (requireAdmin(), unchanged from how PlacardDialogs_API has
-// always worked) — this rewrite preserves that permission model
-// exactly as-is; it doesn't relax or work around it. Whatever mobile
-// screen calls saveRoomDialog needs a signed-in admin session for it
-// to actually succeed, same as it always would have going through
-// this same backend from the web app.
+// The room details (placard dialogs) from PlacardDialogs_API, read-only:
+// looked up by room name (getForRoom). Editing them is the web Admin
+// Panel's job.
 //
 // One shared copy for every screen (see sharedResource.js).
 const dialogsResource = createSharedResource(async () => {
@@ -62,45 +52,5 @@ export function usePlacardDialogs() {
     [docs]
   );
 
-  const saveRoomDialog = useCallback(
-    async (roomName, patch) => {
-      const existing = getForRoom(roomName);
-
-      const body = {};
-      if (patch.roomName !== undefined) body.room_name = patch.roomName;
-      if (patch.roomDescription !== undefined) body.description = patch.roomDescription;
-      if (patch.department !== undefined) body.department = patch.department;
-      if (patch.use !== undefined) body.use = patch.use;
-      if (patch.link !== undefined) body.link = patch.link;
-      if (patch.photo !== undefined) body.photo_path = patch.photo;
-      if (patch.photo360 !== undefined) body.photo_360_path = patch.photo360;
-      if (patch.ocrSearchTerms !== undefined) body.search_terms = patch.ocrSearchTerms;
-
-      let id;
-      if (existing) {
-        await apiRequest(`PlacardDialogs_API/update/${existing.id}`, { method: "PATCH", body, auth: true });
-        id = existing.id;
-      } else {
-        const trimmedName = (patch.roomName || roomName).trim();
-        const ocrTerm = trimmedName.toLowerCase().replace(/[^a-z0-9]/g, "");
-        const data = await apiRequest("PlacardDialogs_API/create", {
-          method: "POST",
-          auth: true,
-          body: {
-            room_name: trimmedName,
-            description: "",
-            search_terms: ocrTerm ? [ocrTerm] : [],
-            ...body,
-          },
-        });
-        id = data.dialog.id;
-      }
-
-      await dialogsResource.refresh();
-      return id;
-    },
-    [getForRoom]
-  );
-
-  return { getForRoom, saveRoomDialog };
+  return { getForRoom };
 }

@@ -69,12 +69,15 @@ export function createSharedResource(load, { maxAgeMs = 5 * 60 * 1000 } = {}) {
     return state.data;
   }
 
-  // Switched to another server (serverAddress.js): forget this one's data;
-  // the next screen that needs it loads it afresh.
+  // Switched to another server (serverAddress.js): forget this one's data,
+  // and load it afresh at once if a screen is showing it (the switch is
+  // made from the tour's About sheet, so the tour is still open);
+  // otherwise the next screen that needs it loads it.
   onServerChange(() => {
     inFlight = null;
     loadedAt = 0;
     setState({ data: null, error: null });
+    if (listeners.size > 0) refresh();
   });
 
   return { useResource, refresh, getData };

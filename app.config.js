@@ -17,7 +17,7 @@
 //
 // Build variant (APP_VARIANT, set per profile in eas.json; a local
 // `expo run:android` counts as development). Only the development build
-// may switch to another Arise_API server from the Sign in screen
+// may switch to another Arise_API server from the About sheet
 // (extra.serverSetting, see src/api/serverAddress.js), so only it allows
 // plain http:// to any host. Preview and production builds can't switch
 // server, and allow http:// only if their own built-in address is http://.

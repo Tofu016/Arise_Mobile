@@ -12,14 +12,13 @@ import { colors } from "../theme";
 //
 // Most are the designer's own icons (assets/icons/, exported from the
 // designer's SVGs — see its README). They're white single-colour PNGs, so any
-// `color` tints them exactly. The board has no search or exit icon, nor
-// the sign-in screens' ones, so those come from the vector icon fonts.
+// `color` tints them exactly. The board has no search, exit or info icon,
+// so those come from the vector icon fonts.
 const ICONS = {
   location: { image: require("../../assets/icons/location.png") },
   exit: { font: [MaterialCommunityIcons, "exit-run"] },
   search: { font: [FontAwesome6, "magnifying-glass"] },
   save: { image: require("../../assets/icons/bookmark.png") },
-  account: { image: require("../../assets/icons/account.png") },
   directions: { image: require("../../assets/icons/directions.png") },
   proceedNext: { image: require("../../assets/icons/chevron.png") },
   proceedBack: { image: require("../../assets/icons/chevron.png"), rotate: "180deg" },
@@ -32,15 +31,11 @@ const ICONS = {
   scanPortrait: { image: require("../../assets/icons/scan-portrait.png") },
   autoWalk: { image: require("../../assets/icons/play.png") },
   pauseWalk: { image: require("../../assets/icons/pause.png") },
-  // Sign-in and account screens (not in the board's set).
-  email: { font: [FontAwesome6, "envelope"] },
-  lock: { font: [FontAwesome6, "lock"] },
+  // Not in the board's set: the About tab, FormField's show/hide password,
+  // and the development build's server setting.
+  about: { font: [FontAwesome6, "circle-info"] },
   showPassword: { font: [FontAwesome6, "eye"] },
   hidePassword: { font: [FontAwesome6, "eye-slash"] },
-  person: { font: [FontAwesome6, "user"] },
-  pending: { font: [FontAwesome6, "hourglass-half"] },
-  alert: { font: [FontAwesome6, "circle-exclamation"] },
-  done: { font: [FontAwesome6, "circle-check"] },
   server: { font: [FontAwesome6, "server"] },
 };
 

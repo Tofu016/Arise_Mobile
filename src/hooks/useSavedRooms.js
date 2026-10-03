@@ -1,26 +1,22 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { apiRequest } from "../api/client";
-import { useAuth } from "../context/useAuth";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// The signed-in account's saved rooms (the bookmark on a room card), kept
-// on the account by Arise_API's SavedRooms_API so they follow the user to
-// another phone. A saved room is its details record's id
-// (placard_dialog_id) plus the name the server last knew it by.
+// The visitor's saved rooms (the bookmark on a room card), kept on this
+// phone only, like the search sheet's Recent list — there are no accounts.
+// A saved room is its details record's id (placard_dialog_id) plus the
+// name it had when saved, newest first, at most LIMIT.
 //
 // Ids are numbers throughout: the room details from PlacardDialogs_API
 // carry them as strings ("11"), so every entry point converts.
 //
-// One module-level store, like sharedResource: loaded once per signed-in
-// account, emptied on sign-out, and read by every component through
-// useSavedRooms(). Changes are optimistic — the bookmark flips at once and
-// flips back if the server refuses (the promise then rejects with the
-// server's message, e.g. the 20-room limit). Calls for the same room run
-// one after another, so a quick save-unsave-save lands in order.
+// One module-level store, read by every component through useSavedRooms().
+// saveRoom/unsaveRoom return promises, resolved at once (or rejected with
+// a message fit to show, e.g. the limit), so callers can toast either way.
+const STORAGE_KEY = "savedRooms";
+const LIMIT = 20;
 
-const EMPTY = { userId: null, saved: [], limit: 20, status: "idle" }; // status: idle | loading | ready | error
-let state = EMPTY;
+let state = { saved: [], limit: LIMIT, status: "idle" }; // status: idle | loading | ready | error
 const listeners = new Set();
-const queues = new Map(); // placard_dialog_id -> the last call's promise
 
 function setState(next) {
   state = next;
@@ -32,26 +28,23 @@ function subscribe(fn) {
   return () => listeners.delete(fn);
 }
 
-async function load(userId) {
-  setState({ ...EMPTY, userId, status: "loading" });
-  try {
-    const data = await apiRequest("SavedRooms_API/getMine", { auth: true });
-    if (state.userId !== userId) return; // signed out / switched meanwhile
-    const saved = data.saved.map((s) => ({ ...s, placard_dialog_id: Number(s.placard_dialog_id) }));
-    setState({ userId, saved, limit: data.limit ?? EMPTY.limit, status: "ready" });
-  } catch {
-    if (state.userId === userId) setState({ ...state, status: "error" });
-  }
+function persist(saved) {
+  setState({ ...state, saved });
+  AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(saved)).catch(() => {});
 }
 
-// Runs `call` after any earlier call for the same room has finished.
-function enqueue(id, call) {
-  const run = (queues.get(id) || Promise.resolve()).catch(() => {}).then(call);
-  queues.set(id, run);
-  run.finally(() => {
-    if (queues.get(id) === run) queues.delete(id);
-  });
-  return run;
+function load() {
+  setState({ ...state, status: "loading" });
+  AsyncStorage.getItem(STORAGE_KEY)
+    .then((raw) => {
+      const stored = JSON.parse(raw || "[]");
+      const saved = (Array.isArray(stored) ? stored : [])
+        .filter((s) => s && Number.isFinite(Number(s.placard_dialog_id)))
+        .map((s) => ({ placard_dialog_id: Number(s.placard_dialog_id), room_name: String(s.room_name || "") }))
+        .slice(0, LIMIT);
+      setState({ ...state, saved, status: "ready" });
+    })
+    .catch(() => setState({ ...state, status: "error" }));
 }
 
 export function isSaved(id) {
@@ -59,56 +52,31 @@ export function isSaved(id) {
   return state.saved.some((s) => s.placard_dialog_id === n);
 }
 
-// Resolves once the server has it; rejects (after undoing the change) with
-// an Error whose message is fit to show.
 export function saveRoom(rawId, roomName) {
   const id = Number(rawId);
   if (isSaved(id)) return Promise.resolve();
-  if (state.saved.length >= state.limit) {
-    return Promise.reject(new Error(`You can save up to ${state.limit} rooms. Remove one to save another.`));
+  if (state.saved.length >= LIMIT) {
+    return Promise.reject(new Error(`You can save up to ${LIMIT} rooms. Remove one to save another.`));
   }
-  const entry = { placard_dialog_id: id, room_name: roomName };
-  setState({ ...state, saved: [entry, ...state.saved] });
-  return enqueue(id, () =>
-    apiRequest("SavedRooms_API/save", { method: "POST", body: { placard_dialog_id: id }, auth: true })
-  ).catch((err) => {
-    setState({ ...state, saved: state.saved.filter((s) => s.placard_dialog_id !== id) });
-    throw err;
-  });
+  persist([{ placard_dialog_id: id, room_name: roomName }, ...state.saved]);
+  return Promise.resolve();
 }
 
 export function unsaveRoom(rawId) {
   const id = Number(rawId);
-  const index = state.saved.findIndex((s) => s.placard_dialog_id === id);
-  if (index === -1) return Promise.resolve();
-  const entry = state.saved[index];
-  setState({ ...state, saved: state.saved.filter((s) => s.placard_dialog_id !== id) });
-  return enqueue(id, () => apiRequest(`SavedRooms_API/remove/${id}`, { method: "DELETE", auth: true })).catch((err) => {
-    if (!isSaved(id)) {
-      const saved = [...state.saved];
-      saved.splice(Math.min(index, saved.length), 0, entry);
-      setState({ ...state, saved });
-    }
-    throw err;
-  });
+  persist(state.saved.filter((s) => s.placard_dialog_id !== id));
+  return Promise.resolve();
 }
 
+// Reads the list from the phone again (the Saved sheet's "Try again").
 export function reloadSavedRooms() {
-  if (state.userId != null) load(state.userId);
+  load();
 }
 
-// { saved, limit, status } for the signed-in account, loading it the
-// first time it's asked for and emptying it on sign-out.
+// { saved, limit, status }, read from the phone the first time it's asked for.
 export function useSavedRooms() {
-  const { user } = useAuth();
-  const userId = user?.id ?? null;
-  const snapshot = useSyncExternalStore(subscribe, () => state);
-
   useEffect(() => {
-    if (userId === state.userId) return;
-    if (userId == null) setState(EMPTY);
-    else load(userId);
-  }, [userId]);
-
-  return snapshot.userId === userId ? snapshot : { ...EMPTY, userId };
+    if (state.status === "idle") load();
+  }, []);
+  return useSyncExternalStore(subscribe, () => state);
 }

@@ -6,7 +6,7 @@ import Icon from "./Icon";
 import { roomSubtitle } from "./SearchSheet";
 import { colors, typography, spacing } from "../theme";
 
-// The Saved tab: the rooms this account has bookmarked (see useSavedRooms),
+// The Saved tab: the rooms bookmarked on this phone (see useSavedRooms),
 // newest first, in the same style as Recent in the search sheet — tap to
 // open the room's card, x to remove (with UNDO, from the caller). A saved
 // room the tour no longer lists (its details still exist, but no spot
@@ -73,7 +73,7 @@ export default function SavedSheet({
         {status === "ready" && saved.length === 0 && (
           <View style={styles.empty}>
             <Icon name="save" size={26} color={colors.gray500} />
-            <Text style={styles.note}>No saved rooms yet. Tap the bookmark on a room's card to save it here.</Text>
+            <Text style={styles.note}>No saved rooms yet. Tap the bookmark on a room's card to save it here. Saved rooms stay on this phone.</Text>
           </View>
         )}
 

@@ -16,8 +16,8 @@ import { colors, typography, radii, spacing } from "../theme";
 
 // Which Arise_API server the app talks to — the development build only
 // (see src/api/serverAddress.js); renders nothing in preview and
-// production builds. Shown on the Sign in screen, so a server is only ever switched
-// while signed out: a session always belongs to the server it signed in to.
+// production builds. Shown in the About sheet; switching reloads the
+// tour's data from the new server (see sharedResource.js).
 // A new address is tested (Arise_API must answer) before it's used.
 export default function ServerSetting({ style }) {
   const current = useServerAddress();

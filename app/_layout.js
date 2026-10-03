@@ -1,13 +1,11 @@
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useFonts } from "expo-font";
-import { Stack, useRouter, useSegments } from "expo-router";
+import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { AuthProvider } from "../src/context/AuthContext";
-import { useAuth } from "../src/context/useAuth";
 import { usePublicNodes } from "../src/hooks/usePublicNodes";
 import StartupScreen from "../src/components/StartupScreen";
 import { colors } from "../src/theme";
@@ -19,45 +17,6 @@ try {
   SplashScreen.setOptions({ fade: true, duration: 200 });
 } catch {
   // An older app build without it just hides the splash without a fade.
-}
-
-const PUBLIC_ROUTES = ["login", "register", "forgot-password", "forgot-email"];
-
-// Mirrors the web app's RequireAuth.jsx logic, adapted for Expo Router:
-// instead of wrapping individual routes in a guard component, this watches
-// the current route + auth state from one place and redirects as needed.
-// Same three states as web: signed out -> /login, signed in but pending ->
-// /approval, signed in and approved -> the real app.
-function AuthGate({ children }) {
-  const { user, role, loading } = useAuth();
-  const segments = useSegments();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (loading) return;
-
-    const current = segments[0] || "index";
-    const isPublicRoute = PUBLIC_ROUTES.includes(current);
-    const needsApproval = !role || role === "pending";
-
-    if (!user && !isPublicRoute) {
-      router.replace("/login");
-      return;
-    }
-    if (user && isPublicRoute) {
-      router.replace(needsApproval ? "/approval" : "/");
-      return;
-    }
-    if (user && needsApproval && current !== "approval") {
-      router.replace("/approval");
-      return;
-    }
-    if (user && !needsApproval && current === "approval") {
-      router.replace("/");
-    }
-  }, [user, role, loading, segments]);
-
-  return children;
 }
 
 // The brand fonts (see assets/fonts/README.md), registered under the family
@@ -73,8 +32,8 @@ const FONT_FILES = {
   "OptimusPrinceps-SemiBold": require("../assets/fonts/OptimusPrinceps-SemiBold.ttf"),
 };
 
-// Screen transitions: forms (register, forgot password…) slide in from the
-// right; the overrides below cover the rest.
+// Screen transitions: slide in from the right by default; the overrides
+// below cover the rest.
 const SCREEN_OPTIONS = {
   headerShown: false,
   contentStyle: { backgroundColor: colors.background },
@@ -83,20 +42,18 @@ const SCREEN_OPTIONS = {
 };
 
 // ---------- Startup screen ----------
-// Shown from launch until the app is ready: the saved sign-in has been
-// checked and — for an approved account, which lands on the tour — the
-// campus data (nodes) has arrived. Once the emblem is actually on screen
+// Shown from launch until the app is ready: the campus data (nodes) the
+// tour opens on has arrived — there's no sign-in; everyone lands on the
+// tour. Once the emblem is actually on screen
 // (StartupScreen's onShown), it stays at least MIN_MS so the logo and
 // title can be seen; and it never keeps anyone waiting on a slow network
 // past MAX_MS from launch: the screen behind it shows its own
-// loading/error state from there. Shown once per launch only — signing
-// out later doesn't bring it back.
+// loading/error state from there. Shown once per launch only.
 const STARTUP_MIN_MS = 3300; // the logo animation (~2.3 s) plus a moment on the finished logo
 const STARTUP_MAX_MS = 12000;
 
-// Only mounted when the tour will need the nodes, so a signed-out launch
-// doesn't fetch them for nothing. The fetch is shared with the main
-// screen's (see sharedResource), so this starts it early rather than twice.
+// Waits for the nodes. The fetch is shared with the main screen's (see
+// sharedResource), so this starts it early rather than twice.
 function NodesReady({ onReady }) {
   const { nodes, error } = usePublicNodes();
   useEffect(() => {
@@ -106,7 +63,6 @@ function NodesReady({ onReady }) {
 }
 
 function StartupGate() {
-  const { user, role, loading } = useAuth();
   const [minElapsed, setMinElapsed] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
   const [nodesReady, setNodesReady] = useState(false);
@@ -124,15 +80,14 @@ function StartupGate() {
     return () => clearTimeout(max);
   }, []);
 
-  const toTour = !loading && !!user && (role === "user" || role === "admin");
-  const ready = timedOut || (minElapsed && !loading && (!toTour || nodesReady));
+  const ready = timedOut || (minElapsed && nodesReady);
   useEffect(() => {
     if (ready) setDone(true);
   }, [ready]);
 
   return (
     <>
-      {toTour && !nodesReady && <NodesReady onReady={() => setNodesReady(true)} />}
+      {!nodesReady && <NodesReady onReady={() => setNodesReady(true)} />}
       {!done && <StartupScreen onShown={() => setShownAt(Date.now())} />}
     </>
   );
@@ -150,26 +105,18 @@ export default function RootLayout() {
     // all without this, with no error shown to explain why.
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <AuthProvider>
-          <StatusBar style="dark" />
-          {/* The app, with the startup screen laid over the whole of it. */}
-          <View style={{ flex: 1 }}>
-            <AuthGate>
-              <Stack screenOptions={SCREEN_OPTIONS}>
-                {/* Sign-in state swaps these with replace(), so they cross-fade
-                    rather than slide as if navigating forward. */}
-                <Stack.Screen name="index" options={{ animation: "fade" }} />
-                <Stack.Screen name="login" options={{ animation: "fade" }} />
-                <Stack.Screen name="approval" options={{ animation: "fade" }} />
-                {/* Camera / AR screens rise over the tour. */}
-                <Stack.Screen name="placard-scanner" options={{ animation: "fade_from_bottom" }} />
-                <Stack.Screen name="ar-viewer" options={{ animation: "fade_from_bottom" }} />
-                <Stack.Screen name="ar-portal" options={{ animation: "fade_from_bottom" }} />
-              </Stack>
-            </AuthGate>
-            <StartupGate />
-          </View>
-        </AuthProvider>
+        <StatusBar style="dark" />
+        {/* The app, with the startup screen laid over the whole of it. */}
+        <View style={{ flex: 1 }}>
+          <Stack screenOptions={SCREEN_OPTIONS}>
+            <Stack.Screen name="index" options={{ animation: "fade" }} />
+            {/* Camera / AR screens rise over the tour. */}
+            <Stack.Screen name="placard-scanner" options={{ animation: "fade_from_bottom" }} />
+            <Stack.Screen name="ar-viewer" options={{ animation: "fade_from_bottom" }} />
+            <Stack.Screen name="ar-portal" options={{ animation: "fade_from_bottom" }} />
+          </Stack>
+          <StartupGate />
+        </View>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

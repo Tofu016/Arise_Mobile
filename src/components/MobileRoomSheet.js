@@ -12,7 +12,7 @@ import Icon from "./Icon";
 // and a photo carousel. Swipe up to expand, down to close. Reopening it for
 // a different room springs it back to its opening height (resetKey).
 //
-// The bookmark saves the room to the account (see useSavedRooms): grey
+// The bookmark saves the room on this phone (see useSavedRooms): grey
 // when not saved, red when it is.
 //
 // Not built yet, per the current scope: the CALL button (rooms have no

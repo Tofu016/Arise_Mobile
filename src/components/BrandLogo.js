@@ -2,8 +2,8 @@ import { Image } from "react-native";
 
 // The official SDCA logo (assets/logos/sdca-logo-horizontal.png: globe +
 // wordmark side by side, in colour) — top-centre on the tour (brand board:
-// "logo placement in nav-menu — avoid placing it on the right") and on the
-// Sign in / Register screens.
+// "logo placement in nav-menu — avoid placing it on the right"), taking
+// turns with the ARISE logo (see TopLogo).
 //
 //   scale: multiplies the default 150dp width.
 const LOGO = require("../../assets/logos/sdca-logo-horizontal.png");

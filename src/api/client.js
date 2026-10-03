@@ -3,16 +3,14 @@ import * as SecureStore from "expo-secure-store";
 import { getApiBaseUrl, loadServerAddress } from "./serverAddress";
 
 // The one place the app talks to Arise_API. Where it lives comes from
-// serverAddress.js (.env's default, or a server picked on the Sign in
-// screen in development/preview builds), read at call time.
-
-const TOKEN_KEY = "authToken";
+// serverAddress.js (.env's default, or a server picked in the About sheet
+// in the development build), read at call time. Every endpoint the app
+// uses is public — there are no accounts.
 
 const DEFAULT_TIMEOUT_MS = 20000;
 
-// kind says what went wrong, which callers sometimes need to tell apart —
-// e.g. a session is only dropped when the server actually refused the
-// token, never because the phone was briefly offline:
+// kind says what went wrong, for callers that need to tell apart e.g.
+// "offline" from "the server said no":
 //   "network"  — no reply at all (offline, wrong address, timed out)
 //   "server"   — a reply that isn't the API's JSON (a PHP error page, a 500)
 //   "rejected" — the API answered { success: false, error }
@@ -25,30 +23,13 @@ export class ApiError extends Error {
   }
 }
 
-// The session token lives in SecureStore (Keychain / Android Keystore),
-// not AsyncStorage, which is a plain unencrypted file. Tokens saved by
-// earlier versions of the app are moved over once, on first read, so
-// updating doesn't sign anyone out.
-export async function getToken() {
-  const token = await SecureStore.getItemAsync(TOKEN_KEY);
-  if (token) return token;
-
-  const legacy = await AsyncStorage.getItem(TOKEN_KEY);
-  if (legacy) {
-    await SecureStore.setItemAsync(TOKEN_KEY, legacy);
-    await AsyncStorage.removeItem(TOKEN_KEY);
-  }
-  return legacy;
-}
-
-export function setToken(token) {
-  return SecureStore.setItemAsync(TOKEN_KEY, token);
-}
-
-export async function clearToken() {
-  await SecureStore.deleteItemAsync(TOKEN_KEY);
-  await AsyncStorage.removeItem(TOKEN_KEY);
-}
+// Earlier versions of the app had accounts and kept a session token on
+// the phone (SecureStore, and AsyncStorage before that). There's no
+// sign-in any more, so it's deleted once per launch, off the critical
+// path — nothing reads it.
+const OLD_TOKEN_KEY = "authToken";
+SecureStore.deleteItemAsync(OLD_TOKEN_KEY).catch(() => {});
+AsyncStorage.removeItem(OLD_TOKEN_KEY).catch(() => {});
 
 // jpeg: ask for a downscaled JPEG copy instead of the original (see
 // Photo_preview in Arise_API); width: its maximum width, one of the
@@ -60,15 +41,11 @@ export function photoUrl(path, { jpeg = false, width } = {}) {
 }
 
 // Calls an Arise_API endpoint ("Nodes_API/getAll") and returns the parsed
-// reply, or throws an ApiError. auth: true sends the stored token, if any.
-export async function apiRequest(endpoint, { method = "GET", body, auth = false, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+// reply, or throws an ApiError.
+export async function apiRequest(endpoint, { method = "GET", body, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   await loadServerAddress(); // the saved server, before the very first call
   const headers = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  if (auth) {
-    const token = await getToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
-  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

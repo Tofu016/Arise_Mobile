@@ -9,8 +9,8 @@ import { colors, typography, radii, spacing } from "../theme";
 // an optional hint/error line underneath. A password field (secureTextEntry)
 // gets an eye button to show or hide what's typed.
 //
-//   <FormField label="Email" icon="email" value={email} onChangeText={setEmail}
-//     keyboardType="email-address" autoCapitalize="none" />
+//   <FormField label="Server address" icon="server" value={text} onChangeText={setText}
+//     keyboardType="url" autoCapitalize="none" />
 //
 // Any TextInput prop passes straight through (returnKeyType,
 // onSubmitEditing, …). `onFocus` / `onBlur` still fire for callers.

@@ -3,7 +3,6 @@ import { View, Text, StyleSheet, Pressable, Image } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import { useAuth } from "../src/context/useAuth";
 import { usePublicNodes } from "../src/hooks/usePublicNodes";
 import { useSearchableRooms } from "../src/hooks/useSearchableRooms";
 import { usePanoramaImage } from "../src/hooks/usePanoramaImage";
@@ -22,7 +21,7 @@ import FlyoverPanel from "../src/components/FlyoverPanel";
 import PanoramaViewer from "../src/components/PanoramaViewer";
 import SearchSheet from "../src/components/SearchSheet";
 import DirectorySheet from "../src/components/DirectorySheet";
-import AccountSheet from "../src/components/AccountSheet";
+import AboutSheet from "../src/components/AboutSheet";
 import SavedSheet from "../src/components/SavedSheet";
 import ToastHost, { showToast } from "../src/components/Toast";
 import BottomNav, { NAV_HEIGHT } from "../src/components/BottomNav";
@@ -38,7 +37,6 @@ const AUTO_WALK_MS = 3000;
 export default function MainScreen() {
   const router = useRouter();
   const buildings = useBuildings(); // re-renders when the building list loads/changes
-  const { user, profile, role, signOut } = useAuth();
   const { nodes, error: loadError } = usePublicNodes();
   // The status bar/notch takes up a different amount of space on every
   // device — a hardcoded "top: 12" would sit right under (or behind) it on
@@ -46,7 +44,7 @@ export default function MainScreen() {
   const insets = useSafeAreaInsets();
 
   // Only one sheet at a time, same as the web app's panelMode:
-  //   null | "search" | "directory" | "room" | "directions" | "account"
+  //   null | "search" | "directory" | "room" | "directions" | "saved" | "about"
   const [panelMode, setPanelMode] = useState(null);
   // The bottom-nav tab that opened what's showing, so it stays lit while a
   // room card or directions opened from it are up.
@@ -61,9 +59,11 @@ export default function MainScreen() {
   // The view the next panorama opens facing — see utils/navigation.js.
   const [entryView, setEntryView] = useState({ yaw: 0, pitch: 0 });
 
-  // Land directly in the tour instead of an intermediate menu screen.
+  // Land directly in the tour instead of an intermediate menu screen — and
+  // again if the spot on screen is no longer in the data (e.g. after a
+  // switch to another server from the About sheet).
   useEffect(() => {
-    if (nodes && currentId === null) {
+    if (nodes && (currentId === null || !nodes.some((n) => n.id === currentId))) {
       const start = pickDefaultNode(nodes, buildingOrder());
       if (start) {
         setCurrentId(start.id);
@@ -585,7 +585,7 @@ export default function MainScreen() {
       openDirectionsPanel();
       return;
     }
-    const panelFor = { location: "directory", search: "search", save: "saved", account: "account" }[tab];
+    const panelFor = { location: "directory", search: "search", save: "saved", about: "about" }[tab];
     if (panelMode === panelFor) {
       closePanel();
       return;
@@ -748,12 +748,8 @@ export default function MainScreen() {
         />
       )}
 
-      {panelMode === "account" && (
-        <AccountSheet
-          name={profile?.name}
-          email={user?.email}
-          isAdmin={role === "admin"}
-          onSignOut={signOut}
+      {panelMode === "about" && (
+        <AboutSheet
           onClose={closePanel}
           bottomOffset={sheetBottom}
           topLimit={sheetTop}

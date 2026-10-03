@@ -4,7 +4,7 @@ import Constants from "expo-constants";
 
 // Where Arise_API lives. The default comes from EXPO_PUBLIC_API_BASE_URL
 // (.env) at build time. Only the development build can switch to another
-// server from the Sign in screen — the choice is saved on the phone.
+// server from the About sheet — the choice is saved on the phone.
 // Preview and production builds can't, and only ever talk to their
 // built-in address (a server saved by a development build on the same
 // phone is ignored), so no one can point a shared app at a fake server.

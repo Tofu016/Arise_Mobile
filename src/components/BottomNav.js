@@ -13,7 +13,7 @@ export const NAV_TABS = [
   { id: "directions", icon: "directions", label: "Directions" },
   { id: "search", icon: "search", label: "Search" },
   { id: "save", icon: "save", label: "Saved" },
-  { id: "account", icon: "account", label: "Account" },
+  { id: "about", icon: "about", label: "About" },
 ];
 
 // Outer height, for callers that place things above the bar.
