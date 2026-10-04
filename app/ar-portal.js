@@ -58,7 +58,7 @@ const MASK_POSITION_OFFSET = [0, 0, 0];
 const MASK_ROTATION = [0, 0, 0];
 
 ViroMaterials.createMaterials({
-  doorFrameMaterial: { diffuseColor: "#8a7660" }, // a plain wood-ish tone — the model has no embedded material of its own
+  doorFrameMaterial: { diffuseColor: "#f2f1ec" }, // the model has no embedded material of its own
   // Fully transparent — this is the actual "see-through" technique itself:
   // a solid quad made invisible via zero-opacity material, rather than a
   // model with a genuine geometric hole. Confirmed working on device.

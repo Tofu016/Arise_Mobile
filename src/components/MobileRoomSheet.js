@@ -78,7 +78,7 @@ export default function MobileRoomSheet({
   const { roomName, node, placard } = room;
   const [expanded, setExpanded] = useState(false);
   const photos = [placard?.photo].filter(Boolean);
-  const about = [placard?.department, placard?.roomDescription].filter(Boolean).join(" — ");
+  const about = [placard?.department, placard?.roomDescription].filter(Boolean).join(", ");
 
   return (
     <BottomSheet

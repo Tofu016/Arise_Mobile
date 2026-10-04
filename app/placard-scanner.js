@@ -284,7 +284,7 @@ export default function PlacardScannerScreen() {
             <Text style={styles.recognizedHint} numberOfLines={2}>
               Read: "{recognizedText || "(no text recognized)"}"
             </Text>
-            <Text style={styles.errorText}>No matching room found — try repositioning the placard.</Text>
+            <Text style={styles.errorText}>No matching room found. Try repositioning the placard.</Text>
             <Button label="Scan again" icon="scanCode" onPress={handleRetry} style={styles.cardButtonFull} />
           </View>
         )}

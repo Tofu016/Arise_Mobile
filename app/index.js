@@ -257,7 +257,7 @@ export default function MainScreen() {
     const reroute = findPath(nodes, currentId, directions.toId);
     setDirections((d) => {
       if (!d) return d;
-      if (!reroute) return { ...d, path: null, stepIndex: 0, error: "Lost the route from here — try Get directions again." };
+      if (!reroute) return { ...d, path: null, stepIndex: 0, error: "Lost the route from here. Try Get directions again." };
       return { ...d, path: reroute, stepIndex: 0, error: "" };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -360,7 +360,7 @@ export default function MainScreen() {
         toId: null,
         path: null,
         stepIndex: 0,
-        error: 'No assembly point has been set up on this campus yet — ask an admin to add an exit marker labeled "Assembly Point" here.',
+        error: 'No assembly point has been set up on this campus yet. Ask an admin to add an exit marker labeled "Assembly Point" here.',
         editingField: null,
         kind: "exit",
       });
