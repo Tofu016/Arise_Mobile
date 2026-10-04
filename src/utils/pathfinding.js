@@ -3,19 +3,19 @@ import { elevatorAdjacency } from "./elevators";
 // Ported from the web app's src/utils/pathfinding.js so both apps route
 // the same way.
 
-// Fire exits (transitionExit) are for emergencies only, so ordinary routing
+// Fire exits (fire_exit) are for emergencies only, so ordinary routing
 // never passes THROUGH one. It can still start or end on one: a visitor
 // standing at a fire exit has to be able to route away from it.
-const EMERGENCY_ONLY_TYPES = ["transitionExit"];
+const EMERGENCY_ONLY_TYPES = ["fire_exit"];
 
-// A neighbor edge that changes floor through a Stairs (transition) node —
+// A neighbor edge that changes floor through a Stairs (stairs) node —
 // the only signal for "this edge is a stairs edge", since node_neighbors
 // has no traversal-kind column.
 function isStairsEdge(byId, a, b) {
   const nodeA = byId[a];
   const nodeB = byId[b];
   if (!nodeA || !nodeB || nodeA.floor === nodeB.floor) return false;
-  return nodeA.type === "transition" || nodeB.type === "transition";
+  return nodeA.type === "stairs" || nodeB.type === "stairs";
 }
 
 // Shortest path over the walkable graph (hotspot links) plus elevator

@@ -92,7 +92,7 @@ export default function MainScreen() {
     });
   }, [current, nodes]);
 
-  // Fixed point-of-interest markers (rooms/facilities/exits/hydrants, and
+  // Fixed point-of-interest markers (rooms/facilities/emergency exits/fire extinguishers, and
   // elevator landings) for the current node — same shape as web's.
   const markers = current?.markers || [];
   const [elevatorPicker, setElevatorPicker] = useState(null);
@@ -348,7 +348,7 @@ export default function MainScreen() {
       directions?.kind === "point" && directions.toId ? { toQuery: directions.toQuery, toId: directions.toId } : null;
     const assemblyPoints = campusNodes.filter((n) =>
       (n.markers || []).some(
-        (m) => m.type === "exit" && (m.label || "").trim().toLowerCase() === "assembly point"
+        (m) => m.type === "emergency_exit" && (m.label || "").trim().toLowerCase() === "assembly point"
       )
     );
 
