@@ -39,7 +39,6 @@ export function floorLabel(floor) {
 // node type: a node is a fire exit node when it carries an emergency exit
 // marker (utils/emergencyExits.js).
 export const STAIRS_TYPE = "stairs";
-export const BUILDING_TRANSITION_TYPE = "building_transition";
 // Floor 1 is the ground floor in every building, Underground (-1) lies below.
 export const GROUND_FLOOR = 1;
 // The node types an admin can tick as an Emergency Exit Destination Point, plus
