@@ -29,6 +29,7 @@ import ToastHost, { showToast } from "../src/components/Toast";
 import BottomNav, { NAV_HEIGHT } from "../src/components/BottomNav";
 import TopLogo from "../src/components/TopLogo";
 import Icon, { COLOR_ICONS } from "../src/components/Icon";
+import { useAnalytics } from "../src/hooks/useAnalytics";
 import { isGyroAvailable } from "../src/utils/deviceLook";
 import { colors, typography, radii, spacing, shadows } from "../src/theme";
 
@@ -81,6 +82,15 @@ export default function MainScreen() {
   }, [nodes, currentId]);
 
   const { image: panorama, error: photoError } = usePanoramaImage(current?.photo);
+
+  // Sessions for the Analytics dashboard (platform "mobile"). The campus and
+  // building come from the first spot the visitor is on; the server keeps
+  // the first values it is given.
+  const analytics = useAnalytics();
+  const currentBuilding = current?.building;
+  useEffect(() => {
+    if (currentBuilding) analytics.setLocation(campusOf(currentBuilding), currentBuilding);
+  }, [analytics, currentBuilding]);
 
   // One arrow per link out of the current node, placed where an admin put
   // it, carrying the link's own arrival view (see utils/navigation.js).
@@ -179,6 +189,7 @@ export default function MainScreen() {
   // of the doors) rather than "keep walking the same way".
   const goTo = (id, hotspot, { ride = false } = {}) =>
     requestMove(id, () => {
+      analytics.move("walk", currentId, id);
       setCurrentId(id);
       setEntryView(ride ? walkEntryView(hotspot) : walkEntryView(hotspot, nodes?.find((n) => n.id === id), currentId));
     });
@@ -208,13 +219,34 @@ export default function MainScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panelMode === "search", searchableRooms]);
 
+  // Tracked after a pause in typing, not per keystroke: a pause is a fair
+  // proxy for "this is the search they meant to run".
+  useEffect(() => {
+    if (!searchQuery.trim()) return undefined;
+    const timer = setTimeout(() => {
+      analytics.roomSearched(searchQuery, roomResults[0]?.node?.id, roomResults.length > 0);
+    }, 800);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
+
   const jumpToNode = (id) => {
     requestMove(id, () => {
+      analytics.move("jump", currentId, id);
       setCurrentId(id);
       setEntryView(jumpEntryView(nodes?.find((n) => n.id === id)));
     });
     setSearchQuery("");
     closePanel();
+  };
+
+  // The visitor picking a destination themselves (search, directory, room
+  // card) is what "go_to" counts; directions' own hop to its first stop
+  // uses plain jumpToNode.
+  const jumpToDestination = (id) => {
+    if (flyover) return;
+    analytics.goTo(id);
+    jumpToNode(id);
   };
 
   // The currently-open room detail sheet, or null.
@@ -301,6 +333,16 @@ export default function MainScreen() {
     searchInputRef.current?.blur();
     setPanelMode("directions");
   };
+
+  // Tracked the moment a route resolves: directions.path flips from falsy
+  // to a real array once per route.
+  const directionsPathRef = useRef(null);
+  useEffect(() => {
+    const path = directions?.path ?? null;
+    if (path && path !== directionsPathRef.current) analytics.directionsRequested(directions.fromId, directions.toId);
+    directionsPathRef.current = path;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [directions?.path]);
 
   // The Directions tab: back to the route in progress if there is one
   // (switching tabs keeps it), otherwise a fresh one from where you're
@@ -514,7 +556,7 @@ export default function MainScreen() {
   };
   const handleRoomView360 = () => {
     if (!selectedRoomCard) return;
-    jumpToNode(selectedRoomCard.node.id);
+    jumpToDestination(selectedRoomCard.node.id);
     setSelectedRoomCard(null);
   };
 
@@ -745,7 +787,7 @@ export default function MainScreen() {
           roomResults={roomResults}
           placeResults={placeResults}
           onPickRoom={openRoomCard}
-          onPickPlace={(n) => jumpToNode(n.id)}
+          onPickPlace={(n) => jumpToDestination(n.id)}
           bottomOffset={sheetBottom}
           topLimit={sheetTop}
         />
@@ -757,7 +799,7 @@ export default function MainScreen() {
           searchableRooms={searchableRooms}
           currentNode={current}
           onPickRoom={openRoomCard}
-          onPickPlace={(node) => jumpToNode(node.id)}
+          onPickPlace={(node) => jumpToDestination(node.id)}
           onClose={closePanel}
           bottomOffset={sheetBottom}
           topLimit={sheetTop}
