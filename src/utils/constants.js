@@ -34,6 +34,22 @@ export function floorLabel(floor) {
   return floor === -1 ? "UG" : `Floor ${floor}`;
 }
 
+// Nearest Exit routing (utils/evacuation.js), ported from the web app's
+// constants.js so both apps send a visitor the same way. A fire exit is not a
+// node type: a node is a fire exit node when it carries an emergency exit
+// marker (utils/emergencyExits.js).
+export const STAIRS_TYPE = "stairs";
+export const BUILDING_TRANSITION_TYPE = "building_transition";
+// Floor 1 is the ground floor in every building, Underground (-1) lies below.
+export const GROUND_FLOOR = 1;
+// The node types an admin can tick as an Emergency Exit Destination Point, plus
+// any node carrying an emergency exit marker (a fire door to the street).
+export const EMERGENCY_DESTINATION_TYPES = ["open_area", "parking", "lobby", "entrance"];
+// Extra hops of walking a route accepts to reach a protected fire stairwell
+// instead of an ordinary flight of stairs. Same value as the web app's.
+export const FIRE_STAIRS_PREFERENCE = 3;
+export const EMERGENCY_EXIT_MARKER = "emergency_exit";
+
 // Point-of-interest markers placed *within* a panorama at a fixed yaw/pitch —
 // distinct from hotspots (which navigate to a different node). "elevator"
 // is the one interactive kind: tapping a landing rides to another floor

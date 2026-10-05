@@ -10,6 +10,8 @@ import { useBuildings, campusOf } from "../src/utils/buildingStore";
 import { buildingOrder } from "../src/utils/constants";
 import { searchRooms, searchNodes, findRoomForMarker } from "../src/utils/search";
 import { findPath } from "../src/utils/pathfinding";
+import { findEvacuationRoute } from "../src/utils/evacuation";
+import { arrivalYawFromExit, fireStairsBetween } from "../src/utils/emergencyExits";
 import { elevatorDestinationsFrom, elevatorRideBetween, arrivalYawFromLanding } from "../src/utils/elevators";
 import { pickDefaultNode, walkEntryView, jumpEntryView, findFlyover } from "../src/utils/navigation";
 import { useRecentRooms, addRecentRoom, removeRecentRoom } from "../src/hooks/useRecentRooms";
@@ -114,6 +116,12 @@ export default function MainScreen() {
         setElevatorPicker({ label: marker.label, currentFloor: current.floor, destinations });
         return;
       }
+    }
+    // The emergency exit marker only moves the visitor while it is the next
+    // step of a Nearest Exit route: it takes the hidden fire stairs.
+    if (marker.type === "emergency_exit" && nextFireStairs && marker.id === nextFireStairs.markerId) {
+      handleWalkToNextStop();
+      return;
     }
     if (marker.type === "room") {
       const room = roomForMarker.get(marker.id);
@@ -221,7 +229,12 @@ export default function MainScreen() {
     }
     return map;
   }, [markers, searchableRooms, current]);
-  const isMarkerTappable = (m) => (m.type === "elevator" ? !!m.elevatorId : roomForMarker.has(m.id));
+  const isMarkerTappable = (m) =>
+    m.type === "elevator"
+      ? !!m.elevatorId
+      : m.type === "emergency_exit"
+        ? m.id === nextFireStairs?.markerId
+        : roomForMarker.has(m.id);
 
   const [selectedRoomCard, setSelectedRoomCard] = useState(null);
 
@@ -254,6 +267,12 @@ export default function MainScreen() {
       }
       return;
     }
+    // Off an emergency route: aim at whichever exit is nearest from here, not the old one.
+    if (directions.emergency) {
+      const here = nodes?.find((n) => n.id === currentId);
+      if (here) setDirections(exitDirections(here, directions.emergency.blocked));
+      return;
+    }
     const reroute = findPath(nodes, currentId, directions.toId);
     setDirections((d) => {
       if (!d) return d;
@@ -283,15 +302,6 @@ export default function MainScreen() {
     setPanelMode("directions");
   };
 
-  // Emergency "nearest exit" shortcut — same logic as the web admin's
-  // MainPage.jsx: the destination isn't picked by the visitor, it's
-  // whichever node has a marker explicitly labeled "Assembly Point"
-  // (case-insensitive/trimmed, since it's free-typed by whoever creates the
-  // marker) that comes back shortest from wherever they currently are.
-  // Deliberately NOT matching on any other exit-type marker (e.g.
-  // "Emergency Fire Stairs") — those are real waypoints the path may
-  // legitimately pass through, but only a marker specifically labeled
-  // "Assembly Point" counts as the genuine, complete safe destination.
   // The Directions tab: back to the route in progress if there is one
   // (switching tabs keeps it), otherwise a fresh one from where you're
   // standing, with the destination left to pick.
@@ -335,61 +345,61 @@ export default function MainScreen() {
   };
 
   // The Directions sheet's NEAREST EXIT button: replaces whatever route was
-  // being planned with the shortest one to an assembly point ON THIS CAMPUS.
-  // Both the assembly points and the route itself are limited to the campus
-  // you're on (GD1-GD3 are one campus, Digital Campus another), so it never
-  // sends you across to another campus to get out.
+  // being planned with the route to the nearest Emergency Exit Destination
+  // Point an admin ticked (utils/evacuation.js, ported from the web app so
+  // both lead a visitor the same way). It never uses an elevator, takes the
+  // hidden fire stairs listed by Emergency Exit markers, and never climbs
+  // above the visitor's floor or Floor 1 unless nothing else exists. Routes
+  // are limited to the campus you're on (GD1-GD3 are one campus, Digital
+  // Campus another), so it never sends you across to another campus.
+  //
+  // `blocked` is the node ids the visitor reported impassable with "This way
+  // is blocked"; the route is recomputed around them from `fromNode`.
+  const exitDirections = (fromNode, blocked = []) => {
+    const campus = campusOf(fromNode.building);
+    const campusNodes = nodes.filter((n) => campusOf(n.building) === campus);
+    const result = findEvacuationRoute(campusNodes, fromNode.id, { blocked });
+    const destination = result ? nodes.find((n) => n.id === result.destinationId) : null;
+    return {
+      fromQuery: fromNode.name,
+      fromId: fromNode.id,
+      toQuery: destination?.name || "",
+      toId: destination?.id || null,
+      path: result?.path || null,
+      stepIndex: 0,
+      error: result
+        ? ""
+        : blocked.length
+          ? "No other way out was found from here. Emergency hotline: 161"
+          : "No safe way out was found from here. Emergency hotline: 161",
+      editingField: null,
+      kind: "exit",
+      emergency: { blocked, ascends: !!result?.ascends },
+    };
+  };
+
   const openDirectionsToNearestExit = () => {
     if (!current || !nodes) return;
-    const campus = campusOf(current.building);
-    const campusNodes = nodes.filter((n) => campusOf(n.building) === campus);
     setAutoWalking(false);
     plannedDestinationRef.current =
       directions?.kind === "point" && directions.toId ? { toQuery: directions.toQuery, toId: directions.toId } : null;
-    const assemblyPoints = campusNodes.filter((n) =>
-      (n.markers || []).some(
-        (m) => m.type === "emergency_exit" && (m.label || "").trim().toLowerCase() === "assembly point"
-      )
-    );
-
-    if (assemblyPoints.length === 0) {
-      setDirections({
-        fromQuery: current.name,
-        fromId: current.id,
-        toQuery: "",
-        toId: null,
-        path: null,
-        stepIndex: 0,
-        error: 'No assembly point has been set up on this campus yet. Ask an admin to add an exit marker labeled "Assembly Point" here.',
-        editingField: null,
-        kind: "exit",
-      });
-      setSearchQuery("");
-      searchInputRef.current?.blur();
-      setPanelMode("directions");
-      return;
-    }
-
-    let best = null;
-    for (const area of assemblyPoints) {
-      const path = findPath(campusNodes, current.id, area.id);
-      if (path && (!best || path.length < best.path.length)) best = { area, path };
-    }
-
-    setDirections({
-      fromQuery: current.name,
-      fromId: current.id,
-      toQuery: best?.area.name || "",
-      toId: best?.area.id || null,
-      path: best?.path || null,
-      stepIndex: 0,
-      error: best ? "" : "No walkable route to an assembly point on this campus was found from here.",
-      editingField: null,
-      kind: "exit",
-    });
+    setDirections(exitDirections(current));
     setSearchQuery("");
     searchInputRef.current?.blur();
     setPanelMode("directions");
+  };
+
+  // "This way is blocked": the visitor reports the route's next stop
+  // impassable (smoke, fire, a locked door). It is excluded for the rest of
+  // this emergency route and the way out is recomputed from where they stand;
+  // with the lowest fire stairs landing blocked that is the next landing.
+  const handleBlocked = () => {
+    if (!directions?.emergency || !directions.path || !nodes) return;
+    const here = directions.path.includes(currentId) ? currentId : directions.path[directions.stepIndex];
+    const blockedId = directions.path[directions.path.indexOf(here) + 1];
+    const fromNode = nodes.find((n) => n.id === here);
+    if (!blockedId || !fromNode) return;
+    setDirections(exitDirections(fromNode, [...new Set([...directions.emergency.blocked, blockedId])]));
   };
 
   const closeDirections = () => {
@@ -460,6 +470,14 @@ export default function MainScreen() {
     // while progressing through the route.
     const hotspot = current?.hotspots?.[nextId];
     const ride = !hotspot && nodes ? elevatorRideBetween(nodes, currentId, nextId) : null;
+    // The hidden fire stairs of a Nearest Exit route: taken through the
+    // emergency exit marker, stepping out facing away from the landing's own
+    // door when it has one.
+    const stairs = !hotspot && !ride && directions.emergency && nodes ? fireStairsBetween(nodes, currentId, nextId) : null;
+    if (stairs) {
+      goTo(nextId, stairs.toMarker ? { yaw: arrivalYawFromExit(stairs.toMarker) } : undefined, { ride: true });
+      return;
+    }
     goTo(nextId, ride ? { yaw: arrivalYawFromLanding(ride.toMarker) } : hotspot, { ride: !!ride });
   };
 
@@ -472,6 +490,19 @@ export default function MainScreen() {
       ? elevatorRideBetween(nodes, currentId, nextStopId)
       : null;
   const nextElevatorFloor = nextElevatorRide?.toFloor ?? null;
+  // The step down the hidden fire stairs, when that is a Nearest Exit route's
+  // next step: { markerId, floor, goesDown }.
+  const nextFireStairsStep =
+    nextStopId && currentId && directions?.emergency && !current?.hotspots?.[nextStopId] && !nextElevatorRide && nodes
+      ? fireStairsBetween(nodes, currentId, nextStopId)
+      : null;
+  const nextFireStairs = nextFireStairsStep
+    ? {
+        markerId: nextFireStairsStep.fromMarker.id,
+        floor: nextFireStairsStep.toFloor,
+        goesDown: nextFireStairsStep.toFloor < Number(current?.floor),
+      }
+    : null;
 
   // Room sheet's "Get Directions" now opens the real Directions sheet
   // instead of jumping directly. "360° View" still just jumps, matching
@@ -623,7 +654,7 @@ export default function MainScreen() {
               // As on web: the route's next hotspot turns green, and an
               // elevator landing that is the next step pulses.
               highlightedId={nextStopId}
-              highlightedMarkerId={nextElevatorRide?.fromMarker?.id ?? null}
+              highlightedMarkerId={nextElevatorRide?.fromMarker?.id ?? nextFireStairs?.markerId ?? null}
               previewsHidden={!!elevatorPicker}
               gyroEnabled={gyroOn}
               entryYaw={entryView.yaw}
@@ -790,6 +821,8 @@ export default function MainScreen() {
           arrived={arrived}
           nextStopName={nextStopName}
           nextElevatorFloor={nextElevatorFloor}
+          nextFireStairs={nextFireStairs}
+          onBlocked={handleBlocked}
           currentId={currentId}
           bottomOffset={sheetBottom}
           topLimit={sheetTop}

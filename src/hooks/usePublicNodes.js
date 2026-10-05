@@ -47,6 +47,9 @@ function toFrontendNode(row) {
     // `elevators` row by the API.
     elevatorId: m.elevator_id ?? null,
     accessibleFloors: (m.accessible_floors || []).map(Number),
+    // Emergency exit markers only (see utils/emergencyExits.js): the node ids
+    // the hidden fire stairs come out at, lowest floor first.
+    landings: m.landings || [],
   }));
 
   const rooms = (row.rooms || []).map((r) => r.room_name);
@@ -57,8 +60,6 @@ function toFrontendNode(row) {
     building: row.building,
     floor: num(row.floor),
     type: row.type,
-    // Every floor a transition (stairs/elevator node) leads to.
-    leadsToFloors: (row.leads_to_floors || []).map(Number),
     // At most one per building floor: where the floor/building pickers land.
     startingNode: Number(row.is_starting_node) === 1,
     // The view to face when jumped onto this node; null means dead ahead.
@@ -66,6 +67,9 @@ function toFrontendNode(row) {
     startingViewPitch: num(row.starting_view_pitch),
     campusEntrance: Number(row.is_campus_entrance) === 1,
     buildingEntrance: Number(row.is_building_entrance) === 1,
+    // An admin's statement that someone who reaches this node is out of danger:
+    // what makes it an Emergency Exit Destination Point, the end of Nearest Exit.
+    isEmergencyDestination: Number(row.is_emergency_destination) === 1,
     photo: row.photo_path || "",
     rooms,
     neighbors,

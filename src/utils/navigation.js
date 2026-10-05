@@ -56,23 +56,25 @@ export function pickBuildingStart(nodes, buildingId) {
 // The panoramas don't share a common north (only ~40% of two-way links
 // point back at each other's opposite angle), so an angle from one photo
 // means nothing in the next — reusing the arrow's yaw, or the camera's,
-// landed some walks facing backwards. The arrival photo's own RETURN arrow
-// (its hotspot back to where you came from) is in the right frame: facing
-// directly away from it is facing the way you walked. Every link has one
-// today; without one, the link's own default view (or its arrow) is used.
-// Pitch starts level.
+// landed some walks facing backwards. Precedence, first match wins (same
+// chain as the web app's src/utils/arrivalView.js, see its
+// docs/arrival-view.md; keep the two in step):
+//   1. the link's own default view (an admin's manual override)
+//   2. away from the arrival photo's own RETURN arrow (its hotspot back to
+//      where you came from), pitch level
+//   3. the clicked arrow's own yaw
 //   hotspot     — the link walked, from the node being left
 //   arrivalNode — the node arrived at
-//   fromId      — the node being left
+//   fromId      — the node being left (the stop just before arrival)
 export function walkEntryView(hotspot, arrivalNode, fromId) {
-  const back = arrivalNode?.hotspots?.[fromId];
+  if (Number.isFinite(hotspot?.defaultYaw)) {
+    return { yaw: hotspot.defaultYaw, pitch: hotspot.defaultPitch ?? 0 };
+  }
+  const back = fromId == null ? null : arrivalNode?.hotspots?.[fromId];
   if (back && Number.isFinite(back.yaw)) {
     return { yaw: (back.yaw + 180) % 360, pitch: 0 };
   }
-  return {
-    yaw: hotspot?.defaultYaw ?? hotspot?.yaw ?? 0,
-    pitch: hotspot?.defaultPitch ?? 0,
-  };
+  return { yaw: hotspot?.yaw ?? 0, pitch: 0 };
 }
 
 // The view to open facing after jumping straight to a node.

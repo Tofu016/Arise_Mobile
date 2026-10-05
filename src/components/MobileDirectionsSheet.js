@@ -5,6 +5,7 @@ import { colors, typography, radii, spacing } from "../theme";
 import BottomSheet from "./BottomSheet";
 import Button from "./Button";
 import ListRow from "./ListRow";
+import { fireStairsAction } from "../utils/emergencyExits";
 import Icon from "./Icon";
 
 // The brand board's DIRECTIONS card: a From → To timeline (grey dot, dotted
@@ -53,6 +54,8 @@ export default function MobileDirectionsSheet({
   arrived,
   nextStopName,
   nextElevatorFloor = null,
+  nextFireStairs = null,
+  onBlocked,
   currentId,
   bottomOffset,
   topLimit,
@@ -159,7 +162,7 @@ export default function MobileDirectionsSheet({
               value={directions.toQuery}
               onChangeText={onChangeTo}
               onFocus={onFocusTo}
-              placeholder={isEmergency ? "Nearest assembly point" : "Choose destination..."}
+              placeholder={isEmergency ? "Nearest exit" : "Choose destination..."}
               editable={!isEmergency}
             />
             {!isEmergency && matches("to", onPickTo)}
@@ -167,6 +170,24 @@ export default function MobileDirectionsSheet({
         </View>
 
         {!!directions.error && <Text style={styles.errorText}>{directions.error}</Text>}
+
+        {isEmergency && hasPath && !arrived && (
+          <Text style={styles.emergencyText}>
+            <Text style={styles.progressBold}>Use the stairs, not elevators.</Text>
+            {directions.emergency?.ascends ? " This route goes up: no level or downward way was found. Call for help." : ""}
+            {" "}Emergency hotline: <Text style={styles.progressBold}>161</Text>
+          </Text>
+        )}
+
+        {nextFireStairs && !arrived && (
+          <View style={styles.stairsBanner} accessibilityRole="alert">
+            <Text style={styles.stairsBannerTitle}>Emergency Exit stairs ahead</Text>
+            <Text style={styles.stairsBannerText}>
+              Take them {nextFireStairs.goesDown ? "down" : "up"} to {floorLabel(nextFireStairs.floor)}. Look for the
+              glowing Emergency Exit sign, and tap it.
+            </Text>
+          </View>
+        )}
 
         {hasPath && !arrived && (
           <Text style={styles.progressText}>
@@ -192,11 +213,20 @@ export default function MobileDirectionsSheet({
             )}
             {hasPath && !notStarted && !autoWalking && (
               <Button
-                label={nextElevatorFloor != null ? `Take the elevator to ${floorLabel(nextElevatorFloor)}` : `Walk to ${nextStopName}`}
+                label={
+                  nextElevatorFloor != null
+                    ? `Take the elevator to ${floorLabel(nextElevatorFloor)}`
+                    : nextFireStairs
+                      ? fireStairsAction(nextFireStairs)
+                      : `Walk to ${nextStopName}`
+                }
                 iconRight="proceedNext"
                 onPress={onWalkNext}
                 style={styles.actionBtn}
               />
+            )}
+            {isEmergency && hasPath && onBlocked && (
+              <Button label="This way is blocked" variant="neutral" onPress={onBlocked} style={styles.actionBtn} />
             )}
             <Button
               label={autoWalking ? "Pause walk" : "Auto walk (every 3s)"}
@@ -286,6 +316,15 @@ const styles = StyleSheet.create({
   errorText: { ...typography.caption, color: colors.danger, marginTop: spacing.md },
   progressText: { ...typography.label, marginTop: spacing.lg },
   progressBold: { color: colors.textPrimary },
+  emergencyText: { ...typography.caption, color: colors.danger, marginTop: spacing.md },
+  stairsBanner: {
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radii.md,
+    backgroundColor: colors.emergency,
+  },
+  stairsBannerTitle: { ...typography.button, color: colors.textOnPrimary },
+  stairsBannerText: { ...typography.caption, color: colors.textOnPrimary, marginTop: 2 },
   arrivedText: { ...typography.body, color: colors.textPrimary, marginTop: spacing.lg },
   actionBtn: { marginTop: spacing.md, alignSelf: "stretch" },
 });
