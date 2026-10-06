@@ -6,7 +6,7 @@ two typefaces, and the app ships the real files:
 | Design font | Used for | Files |
 |---|---|---|
 | Century Gothic (Paneuropean) | everything: Black headings, Bold buttons/labels, Regular body | `CenturyGothic-Regular/SemiBold/Bold/Black.ttf` |
-| Optimus Princeps | the "St. Dominic College of Asia" wordmark style | `OptimusPrinceps-Regular/SemiBold.ttf` |
+| Optimus Princeps | **not used** — the app is Century Gothic only; kept for reference, not loaded | `OptimusPrinceps-Regular/SemiBold.ttf` |
 
 Fonts are loaded at runtime by `app/_layout.js` (expo-font `useFonts`,
 `FONT_FILES`), so adding or swapping a file needs only a Metro reload, not a

@@ -31,9 +31,13 @@ const ICONS = {
   scanPortrait: { image: require("../../assets/icons/scan-portrait.png") },
   autoWalk: { image: require("../../assets/icons/play.png") },
   pauseWalk: { image: require("../../assets/icons/pause.png") },
-  // Not in the board's set: the About tab, FormField's show/hide password,
-  // and the development build's server setting.
+  // Not in the board's set: the About tab, its feedback form (stars, the
+  // "sent" check), FormField's show/hide password, and the development
+  // build's server setting.
   about: { font: [FontAwesome6, "circle-info"] },
+  star: { font: [MaterialCommunityIcons, "star"] },
+  starOutline: { font: [MaterialCommunityIcons, "star-outline"] },
+  done: { font: [FontAwesome6, "circle-check"] },
   showPassword: { font: [FontAwesome6, "eye"] },
   hidePassword: { font: [FontAwesome6, "eye-slash"] },
   server: { font: [FontAwesome6, "server"] },
@@ -41,8 +45,8 @@ const ICONS = {
 
 // The gyro toggle's two images, shown as-is (not tinted): compass inside
 // the four arrows (the designer's gyro-map + gyro-arrowkeys combined), with
-// a soft white outline. The active half is dark: `off` = black chevrons +
-// grey compass (drag to look), `on` = grey chevrons + dark compass (move the
+// a soft white outline. `off` = black chevrons + grey compass (drag to
+// look), `on` = dim chevrons + maroon compass, gold needle (move the
 // phone to look).
 //   <Image source={COLOR_ICONS.gyroControl.on} style={{ width: 76, height: 76 }} />
 export const COLOR_ICONS = {

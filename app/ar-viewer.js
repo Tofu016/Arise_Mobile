@@ -44,6 +44,8 @@ const MASK_ROTATION = [0, 0, 0];
 // updated JOYSTICK_TICK_MS apart while the stick is held.
 const JOYSTICK_SPEED = 1.2;
 const JOYSTICK_TICK_MS = 33;
+// Space between the joystick and the top of the Walk-to sheet below it.
+const JOYSTICK_GAP = 28;
 // Going through the door: the opening is 1.2 m wide (MASK_SCALE); passing
 // its plane within this far (m) of its centre, sideways, counts — the
 // opening's half-width plus some slack, so "close to it" is enough.
@@ -338,11 +340,12 @@ export default function ArViewerScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
-  // The joystick rides on top of the sheet, following it as it's dragged.
+  // The joystick rides above the sheet, following it as it's dragged, with
+  // a clear gap (JOYSTICK_GAP) so it never reads as part of the sheet.
   const sheetBottom = insets.bottom + spacing.md;
   const sheetHeight = useSharedValue(0);
   const joystickStyle = useAnimatedStyle(() => ({
-    bottom: sheetBottom + sheetHeight.value + spacing.xs,
+    bottom: sheetBottom + sheetHeight.value + JOYSTICK_GAP,
   }));
   const { nodeId } = useLocalSearchParams();
   const { nodes } = usePublicNodes();

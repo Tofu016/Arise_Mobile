@@ -1,11 +1,9 @@
 // Typographic system from the UI designer's brand board
 // (sdca2026.my.canva.site/virtualtour), as React Native style presets.
 //
-// The board uses two families:
-//   - Optimus Princeps   — headings (h1-h3, hero): the "St. Dominic College
-//                          of Asia" wordmark style
-//   - Century Gothic     — all other text: Bold buttons/labels/section
-//                          eyebrows, Regular body; mostly uppercase, tracked
+// Century Gothic only, throughout: Bold headings, buttons and labels, Black
+// section eyebrows, Regular body; mostly uppercase, tracked. (The board
+// also used Optimus Princeps for headings; the app no longer does.)
 //
 // Fonts are loaded at runtime in app/_layout.js; the family names below are
 // the keys registered there (files and licensing: assets/fonts/README.md).
@@ -20,25 +18,22 @@ export const fontFamily = {
   display: "CenturyGothic-Bold",
   displaySemiBold: "CenturyGothic-SemiBold",
   displayHeavy: "CenturyGothic-Black",
-
-  serif: "OptimusPrinceps-Regular",
-  serifBold: "OptimusPrinceps-SemiBold",
 };
 
 // Named presets — spread into a StyleSheet entry or a Text `style` prop.
 // `color` is included so most text needs only the preset.
 export const typography = {
-  // Headings are Optimus Princeps. Its capitals already run wide, so they
-  // are tracked less than the Century Gothic labels.
+  // Headings: Century Gothic Bold. Its capitals run wide, so they are
+  // tracked less than the smaller labels.
   hero: {
-    fontFamily: fontFamily.serifBold,
+    fontFamily: fontFamily.display,
     fontSize: 30,
     lineHeight: 38,
     color: colors.textPrimary,
   },
   // Screen / sheet titles: "DIRECTORY", "DIRECTIONS", a room's name.
   h1: {
-    fontFamily: fontFamily.serifBold,
+    fontFamily: fontFamily.display,
     fontSize: 25,
     lineHeight: 31,
     letterSpacing: 1.2,
@@ -46,7 +41,7 @@ export const typography = {
     color: colors.textPrimary,
   },
   h2: {
-    fontFamily: fontFamily.serifBold,
+    fontFamily: fontFamily.display,
     fontSize: 21,
     lineHeight: 26,
     letterSpacing: 1,
@@ -54,7 +49,7 @@ export const typography = {
     color: colors.textPrimary,
   },
   h3: {
-    fontFamily: fontFamily.serifBold,
+    fontFamily: fontFamily.display,
     fontSize: 17,
     lineHeight: 22,
     letterSpacing: 0.8,

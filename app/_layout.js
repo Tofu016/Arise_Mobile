@@ -28,8 +28,6 @@ const FONT_FILES = {
   "CenturyGothic-SemiBold": require("../assets/fonts/CenturyGothic-SemiBold.ttf"),
   "CenturyGothic-Bold": require("../assets/fonts/CenturyGothic-Bold.ttf"),
   "CenturyGothic-Black": require("../assets/fonts/CenturyGothic-Black.ttf"),
-  "OptimusPrinceps-Regular": require("../assets/fonts/OptimusPrinceps-Regular.ttf"),
-  "OptimusPrinceps-SemiBold": require("../assets/fonts/OptimusPrinceps-SemiBold.ttf"),
 };
 
 // Screen transitions: slide in from the right by default; the overrides

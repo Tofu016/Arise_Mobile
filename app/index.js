@@ -36,6 +36,10 @@ import { colors, typography, radii, spacing, shadows } from "../src/theme";
 // Auto walk steps along the route every 3 s — the brand board's
 // "AUTO WALK (EVERY 3S)".
 const AUTO_WALK_MS = 3000;
+// The bottom-right buttons: the gyro toggle (its image, no plate) and the
+// round AR button stacked above it.
+const GYRO_SIZE = 76;
+const AR_BTN_SIZE = 50;
 
 export default function MainScreen() {
   const router = useRouter();
@@ -725,14 +729,20 @@ export default function MainScreen() {
         <TopLogo />
       </View>
 
-      {/* ---------- Bottom corners, above the nav: AR view (left) and the
-          gyro look-around toggle (right). The placard scanner lives in the
-          search sheet. Hidden while a sheet is up. ---------- */}
+      {/* ---------- Bottom-right, above the nav: the gyro look-around
+          toggle in the corner, the AR view button stacked above it (centred
+          over it). The placard scanner lives in the search sheet. Hidden
+          while a sheet is up. ---------- */}
       {!panelMode && (
         <Animated.View
           entering={FadeIn.duration(200)}
           exiting={FadeOut.duration(150)}
-          style={[styles.cornerBtnWrap, { bottom: sheetBottom + 4, left: spacing.xl }]}
+          style={[
+            styles.cornerBtnWrap,
+            gyroAvailable
+              ? { bottom: sheetBottom + 4 + GYRO_SIZE + spacing.sm, right: spacing.xl + (GYRO_SIZE - AR_BTN_SIZE) / 2 }
+              : { bottom: sheetBottom + 4, right: spacing.xl },
+          ]}
         >
           <Pressable
             style={({ pressed }) => [styles.roundFloatingBtn, styles.largeFloatingBtn, pressed && styles.roundFloatingBtnPressed]}
@@ -749,10 +759,11 @@ export default function MainScreen() {
           exiting={FadeOut.duration(150)}
           style={[styles.cornerBtnWrap, { bottom: sheetBottom + 4, right: spacing.xl }]}
         >
-          {/* Compass inside the four arrows, no plate behind it; the active
-              half is dark, the other grey: black chevrons = drag to look
-              (off), dark compass = move the phone to look (on). A soft white
-              outline in the image keeps it readable over any panorama. */}
+          {/* Compass inside the four arrows, no plate behind it: black
+              chevrons + grey compass = drag to look (off); dim chevrons + a
+              maroon compass with a gold needle = move the phone to look (on),
+              so "on" is unmistakable. A soft white outline in the image keeps
+              it readable over any panorama. */}
           <Pressable
             style={({ pressed }) => [styles.gyroBtn, pressed && styles.gyroBtnPressed]}
             hitSlop={6}
@@ -824,6 +835,7 @@ export default function MainScreen() {
       {panelMode === "about" && (
         <AboutSheet
           onClose={closePanel}
+          onFeedbackSubmitted={(feedback) => analytics.feedbackSubmitted(feedback?.id, feedback?.rating)}
           bottomOffset={sheetBottom}
           topLimit={sheetTop}
         />
@@ -935,10 +947,10 @@ const styles = StyleSheet.create({
     ...shadows.floating,
   },
   roundFloatingBtnPressed: { backgroundColor: colors.iconButton },
-  largeFloatingBtn: { position: "relative", width: 50, height: 50, borderRadius: 25 },
+  largeFloatingBtn: { position: "relative", width: AR_BTN_SIZE, height: AR_BTN_SIZE, borderRadius: AR_BTN_SIZE / 2 },
   cornerBtnWrap: { position: "absolute" },
-  gyroBtn: { width: 76, height: 76, alignItems: "center", justifyContent: "center" },
+  gyroBtn: { width: GYRO_SIZE, height: GYRO_SIZE, alignItems: "center", justifyContent: "center" },
   gyroBtnPressed: { opacity: 0.6 },
-  gyroIcon: { width: 76, height: 76 },
+  gyroIcon: { width: GYRO_SIZE, height: GYRO_SIZE },
 
 });

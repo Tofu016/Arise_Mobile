@@ -23,7 +23,8 @@ function newSessionId() {
   });
 }
 
-// Returns { setLocation, roomSearched, goTo, directionsRequested, move }.
+// Returns { setLocation, roomSearched, goTo, directionsRequested, move,
+// feedbackSubmitted }.
 export function useAnalytics() {
   const sessionIdRef = useRef(newSessionId());
   const queueRef = useRef([]);
@@ -85,6 +86,13 @@ export function useAnalytics() {
         track({ type: "directions_requested", from_node_id: fromNodeId, to_node_id: toNodeId }),
       move: (kind, fromNodeId, toNodeId) =>
         track({ type: "move", move_kind: kind, from_node_id: fromNodeId || undefined, to_node_id: toNodeId }),
+      // Links the feedback (About sheet) to this session, as web does. Sent
+      // at once: it's a one-off, and the visitor may close the app next.
+      // Unlike web, the session carries on — the app stays open.
+      feedbackSubmitted: (feedbackId, rating) => {
+        track({ type: "feedback_submitted", feedback_id: feedbackId, rating });
+        flushRef.current();
+      },
     };
   }, []);
 }
