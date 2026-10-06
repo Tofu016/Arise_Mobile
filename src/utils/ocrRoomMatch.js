@@ -1,52 +1,61 @@
 import Fuse from "fuse.js";
+import { bareOcrForm, compactOcrForm, effectivePlacardName, ocrTermsForRoom, spacedOcrForm } from "./ocrTerms";
 
-// Fuzzy-matches raw OCR text (often noisy — mixed case, extra whitespace,
-// extraneous words from the rest of a placard's text) against ARISE's real
-// room data (from useSearchableRooms). Returns candidates sorted best-first,
-// each flagged with whether it's confident enough to treat as a genuine
-// match rather than just a suggestion to offer the person.
+// Ported from the web app's src/utils/ocrRoomMatch.js (keep in step), where
+// it drives the OCR Management page's "Test a read" box, so an admin sees
+// what a phone would. The web copy has the tests.
 //
-// Matched against the room name AND the room's OCR search terms from
-// PlacardDialogs_API (search_terms): an admin-maintained list of what a
-// placard may read as, stored lowercase letters/digits only ("gd1101").
-// The OCR text is searched as read and also normalized the same way, so a
-// placard read as "GD1 101" or "GD1101" still lands exactly on GD1-101.
+// Matches what the placard scanner read against the rooms it may match (the
+// OCR-eligible ones; the caller filters).
+//
+// Returns candidates best-first: { room, score (1 = perfect), matchesTerm,
+// isExact }.
+//   matchesTerm  the whole read is one of the room's search terms, after
+//                normalizing (see ocrTerms.js). Compared in compact form
+//                first; only when no room matches that way, in bare form,
+//                so a read whose dash OCR dropped still lands.
+//   isExact      the scanner opens this room without asking: it is the
+//                only room matching a term. A term two rooms share makes
+//                both suggestions instead. A high fuzzy score alone never
+//                counts: "GD1-10" scores close to both GD1-101 and GD1-102.
+// Everything else is a fuzzy match on the Placard name and search terms,
+// offered as "Did you mean...".
 //
 // threshold is Fuse's own match-strictness knob: 0 = exact match only,
 // 1 = matches almost anything. 0.4 is a deliberately forgiving middle
 // ground, since OCR output is rarely a clean, exact match to begin with.
 const FUSE_OPTIONS = {
-  keys: ["roomName", "placard.ocrSearchTerms"],
+  keys: ["placardName", "terms"],
   includeScore: true,
   threshold: 0.4,
 };
 
-// Same normalization the search terms are stored with.
-function normalize(text) {
-  return text.toLowerCase().replace(/[^a-z0-9]/g, "");
-}
+export function matchRoomsFromOcr(ocrText, rooms) {
+  const spaced = spacedOcrForm(ocrText);
+  if (!spaced || rooms.length === 0) return [];
+  const compact = compactOcrForm(spaced);
+  const bare = bareOcrForm(spaced);
 
-// Confident enough to skip the suggestion step only when the WHOLE read
-// is the room's name or one of its search terms — not merely a high Fuse
-// score, which a partial read also gets: "GD1-10" scores ~0 against both
-// GD1-101 and GD1-102, and used to jump straight to whichever came first.
-function isExactRead(normalizedRead, room) {
-  if (!normalizedRead) return false;
-  if (normalize(room.roomName) === normalizedRead) return true;
-  return (room.placard?.ocrSearchTerms || []).includes(normalizedRead);
-}
+  const entries = rooms.map((room) => {
+    const terms = ocrTermsForRoom(room);
+    return {
+      room,
+      placardName: effectivePlacardName(room.placard, room.roomName),
+      terms,
+      compactTerms: new Set(terms.map(compactOcrForm)),
+      bareTerms: new Set(terms.map(bareOcrForm)),
+    };
+  });
 
-export function matchRoomsFromOcr(ocrText, searchableRooms) {
-  const trimmed = (ocrText || "").trim();
-  if (!trimmed || searchableRooms.length === 0) return [];
+  const byCompact = entries.filter((e) => e.compactTerms.has(compact));
+  const termMatches = new Set(byCompact.length > 0 ? byCompact : entries.filter((e) => bare && e.bareTerms.has(bare)));
+  const opens = termMatches.size === 1 ? [...termMatches][0] : null;
 
-  const fuse = new Fuse(searchableRooms, FUSE_OPTIONS);
-  const normalized = normalize(trimmed);
-  const queries = [...new Set([trimmed, normalized].filter(Boolean))];
-
-  // Best (lowest) Fuse score per room across both queries.
+  // Best (lowest) Fuse score per room across the read's forms.
+  const fuse = new Fuse(entries, FUSE_OPTIONS);
   const best = new Map();
-  for (const query of queries) {
+  for (const entry of termMatches) best.set(entry, 0);
+  for (const query of new Set([spaced, compact, bare].filter(Boolean))) {
     for (const r of fuse.search(query)) {
       const score = r.score ?? 1;
       const seen = best.get(r.item);
@@ -55,13 +64,14 @@ export function matchRoomsFromOcr(ocrText, searchableRooms) {
   }
 
   return [...best.entries()]
-    .sort((a, b) => a[1] - b[1])
-    .map(([room, score]) => ({
-      room,
+    .sort((a, b) => Number(termMatches.has(b[0])) - Number(termMatches.has(a[0])) || a[1] - b[1])
+    .map(([entry, score]) => ({
+      room: entry.room,
       // Flipped so 1 = perfect match, matching the more intuitive
       // "higher is better" convention used elsewhere in this app (e.g. the
       // room search ranking), rather than Fuse's own 0-is-best convention.
       score: 1 - score,
-      isExact: isExactRead(normalized, room),
+      matchesTerm: termMatches.has(entry),
+      isExact: entry === opens,
     }));
 }

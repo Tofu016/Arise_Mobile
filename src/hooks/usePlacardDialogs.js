@@ -27,6 +27,11 @@ function toFrontendDialog(row) {
     link: row.link || "",
     photos,
     photo360: photos.find((p) => p.kind === "360")?.path || "",
+    // Whether the placard scanner matches this room, set on the web's OCR
+    // Management page. An API from before that page sends no flag; every
+    // room with details was matchable then, so a missing flag counts as on.
+    ocrEnabled: row.ocr_enabled === undefined ? true : Number(row.ocr_enabled) === 1,
+    placardName: row.placard_name || "",
     ocrSearchTerms: (row.search_terms || []).map((t) => t.term),
     createdAt: row.created_at,
     updatedAt: row.updated_at,

@@ -8,8 +8,8 @@ import { buildSearchableRooms } from "../utils/search";
 // the web app's: rooms and facilities with no Room Edit record are listed
 // too, with a null `placard`, so anything rendering a room must treat it as
 // optional. Search, the directory, directions and saved rooms all draw on
-// this one list. The placard scanner and AR portal keep to rooms with
-// details (a portal needs the room's 360 photo).
+// this one list. The placard scanner keeps to the rooms an admin put on OCR
+// (see utils/ocrTerms.js isOcrEligible), which all have details.
 export function useSearchableRooms() {
   const { nodes, error: nodesError } = usePublicNodes();
   const { getForRoom } = usePlacardDialogs();

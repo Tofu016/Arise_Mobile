@@ -7,6 +7,7 @@ import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { recognizeText } from "@infinitered/react-native-mlkit-text-recognition";
 import { useSearchableRooms } from "../src/hooks/useSearchableRooms";
 import { matchRoomsFromOcr } from "../src/utils/ocrRoomMatch";
+import { isOcrEligible } from "../src/utils/ocrTerms";
 import { reconstructVerticalText } from "../src/utils/verticalTextSort";
 import { buildingLabel, floorLabel } from "../src/utils/constants";
 import { colors, typography, radii, spacing, shadows } from "../src/theme";
@@ -30,10 +31,11 @@ export default function PlacardScannerScreen() {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef(null);
-  // Only rooms with details: a scan leads on to the room's AR portal, which
-  // needs the details' 360 photo (and OCR search terms live there too).
+  // Only the rooms an admin put on OCR (the web's OCR Management page), which
+  // all have details: a scan leads on to the room's AR portal, which needs
+  // the details' 360 photo, and the Placard name and search terms live there.
   const { searchableRooms: allRooms } = useSearchableRooms();
-  const searchableRooms = useMemo(() => allRooms.filter((r) => r.placard), [allRooms]);
+  const searchableRooms = useMemo(() => allRooms.filter((r) => isOcrEligible(r)), [allRooms]);
 
   const [reticleMode, setReticleMode] = useState("horizontal");
 
