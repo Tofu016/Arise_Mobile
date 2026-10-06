@@ -6,13 +6,11 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import { usePublicNodes } from "../src/hooks/usePublicNodes";
 import { useSearchableRooms } from "../src/hooks/useSearchableRooms";
 import { usePanoramaImage } from "../src/hooks/usePanoramaImage";
-import { useBuildings, campusOf } from "../src/utils/buildingStore";
-import { buildingOrder } from "../src/utils/constants";
-import { searchRooms, searchNodes, findRoomForMarker } from "../src/utils/search";
-import { findPath } from "../src/utils/pathfinding";
-import { findEvacuationRoute } from "../src/utils/evacuation";
-import { arrivalYawFromExit, fireStairsBetween } from "../src/utils/emergencyExits";
-import { elevatorDestinationsFrom, elevatorRideBetween, arrivalYawFromLanding } from "../src/utils/elevators";
+import { useBuildings, useBuildingsSettled, campusOf } from "../src/utils/buildingStore";
+import { allBuildings } from "../src/utils/constants";
+import { searchCampus, pickLocationSuggestions, findRoomForMarker } from "../src/utils/search";
+import * as route from "../src/utils/directionsRoute";
+import { elevatorDestinationsFrom, arrivalYawFromLanding } from "../src/utils/elevators";
 import { pickDefaultNode, walkEntryView, jumpEntryView, findFlyover } from "../src/utils/navigation";
 import { useRecentRooms, addRecentRoom, removeRecentRoom } from "../src/hooks/useRecentRooms";
 import { useSavedRooms, saveRoom, unsaveRoom, reloadSavedRooms } from "../src/hooks/useSavedRooms";
@@ -44,6 +42,7 @@ const AR_BTN_SIZE = 50;
 export default function MainScreen() {
   const router = useRouter();
   const buildings = useBuildings(); // re-renders when the building list loads/changes
+  const buildingsSettled = useBuildingsSettled();
   const { nodes, error: loadError } = usePublicNodes();
   // The status bar/notch takes up a different amount of space on every
   // device — a hardcoded "top: 12" would sit right under (or behind) it on
@@ -68,17 +67,21 @@ export default function MainScreen() {
 
   // Land directly in the tour instead of an intermediate menu screen — and
   // again if the spot on screen is no longer in the data (e.g. after a
-  // switch to another server from the About sheet).
+  // switch to another server from the About sheet). Waits for the building
+  // list too (or its failure), since the Main Campus entrance is picked by
+  // each building's campus.
   useEffect(() => {
-    if (nodes && (currentId === null || !nodes.some((n) => n.id === currentId))) {
-      const start = pickDefaultNode(nodes, buildingOrder());
+    if (nodes && buildingsSettled && (currentId === null || !nodes.some((n) => n.id === currentId))) {
+      const start = pickDefaultNode(nodes, allBuildings());
       if (start) {
         setCurrentId(start.id);
         setEntryView(jumpEntryView(start));
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes]);
+  }, [nodes, buildingsSettled]);
+
+  const byId = useMemo(() => Object.fromEntries((nodes || []).map((n) => [n.id, n])), [nodes]);
 
   const current = useMemo(() => {
     if (!nodes || !currentId) return null;
@@ -190,12 +193,14 @@ export default function MainScreen() {
   // view), same as web. Distinct from jumpToNode below (search results /
   // room card), which opens facing the destination's own starting view.
   // `ride`: an elevator ride, which keeps its own arrival view (facing out
-  // of the doors) rather than "keep walking the same way".
-  const goTo = (id, hotspot, { ride = false } = {}) =>
+  // of the doors) rather than "keep walking the same way". `from`: the stop
+  // just before arrival, when that isn't where the visitor stands (Skip
+  // hallway passes over several), for the arrival view's return arrow.
+  const goTo = (id, hotspot, { ride = false, from = currentId } = {}) =>
     requestMove(id, () => {
       analytics.move("walk", currentId, id);
       setCurrentId(id);
-      setEntryView(ride ? walkEntryView(hotspot) : walkEntryView(hotspot, nodes?.find((n) => n.id === id), currentId));
+      setEntryView(ride ? walkEntryView(hotspot) : walkEntryView(hotspot, byId[id], from));
     });
 
   // ---------- Search ----------
@@ -204,24 +209,20 @@ export default function MainScreen() {
   // see useSearchableRooms.js for how this is built.
   const { searchableRooms } = useSearchableRooms();
 
-  const roomResults = useMemo(() => {
-    if (!searchQuery.trim()) return [];
-    return searchRooms(searchQuery, searchableRooms);
-  }, [searchableRooms, searchQuery]);
+  // Rooms first, then plain node-name matches (entrances, hallways, etc.)
+  // not already surfaced as a room: utils/search.js, shared with web.
+  const { roomResults, placeResults } = useMemo(
+    () => searchCampus(searchQuery, nodes, searchableRooms),
+    [nodes, searchQuery, searchableRooms]
+  );
 
-  // Plain node-name matches (entrances, hallways, etc.), excluding anything
-  // already surfaced as a room result above — same fallback behavior as web.
-  const placeResults = useMemo(() => {
-    if (!nodes || !searchQuery.trim()) return [];
-    const roomNodeIds = new Set(roomResults.map((r) => r.node.id));
-    return searchNodes(searchQuery, nodes).filter((n) => !roomNodeIds.has(n.id));
-  }, [nodes, searchQuery, roomResults]);
-
-  const randomSuggestions = useMemo(() => {
-    if (searchableRooms.length === 0) return [];
-    return [...searchableRooms].sort(() => Math.random() - 0.5).slice(0, 6);
+  // A fresh random sample each time the sheet opens: rooms with details,
+  // then places filling what's left, as web's pickLocationSuggestions.
+  const { rooms: randomSuggestions, places: randomPlaceSuggestions } = useMemo(
+    () => pickLocationSuggestions(nodes, searchableRooms),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [panelMode === "search", searchableRooms]);
+    [panelMode === "search", searchableRooms, nodes]
+  );
 
   // Tracked after a pause in typing, not per keystroke: a pause is a fair
   // proxy for "this is the search they meant to run".
@@ -288,55 +289,32 @@ export default function MainScreen() {
   };
 
   // ---------- Directions ----------
+  // The state and every transition are utils/directionsRoute.js, shared with
+  // the web app, so both apps resolve, route, re-route and step through a
+  // route the same way. `null` means no directions are open.
   const [directions, setDirections] = useState(null);
-  // shape: { fromQuery, fromId, toQuery, toId, path, stepIndex, error, editingField }
 
-  // Keep an active route in sync with wherever the visitor actually is —
-  // relevant once Stage 4 adds real hotspot navigation; for now it also
-  // covers jumping around via search while a route is active.
+  // Keep an active route in sync with wherever the visitor actually is:
+  // following the route advances the step, wandering off re-routes from the
+  // new spot (honoring the chosen stairs/elevator), and off a Nearest exit
+  // route it aims at whichever exit is nearest from here.
   useEffect(() => {
-    if (!directions?.path || !currentId) return;
-    const idx = directions.path.indexOf(currentId);
-    if (idx !== -1) {
-      if (idx !== directions.stepIndex) {
-        setDirections((d) => (d ? { ...d, stepIndex: idx } : d));
-      }
-      return;
-    }
-    // Off an emergency route: aim at whichever exit is nearest from here, not the old one.
-    if (directions.emergency) {
-      const here = nodes?.find((n) => n.id === currentId);
-      if (here) setDirections(exitDirections(here, directions.emergency.blocked));
-      return;
-    }
-    const reroute = findPath(nodes, currentId, directions.toId);
-    setDirections((d) => {
-      if (!d) return d;
-      if (!reroute) return { ...d, path: null, stepIndex: 0, error: "Lost the route from here. Try Get directions again." };
-      return { ...d, path: reroute, stepIndex: 0, error: "" };
-    });
+    if (!nodes) return;
+    setDirections((d) => route.syncToPosition(d, currentId, nodes));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentId]);
 
-  // Opening directions always REPLACES whatever the panel was showing,
-  // same as web/PWA — Maps switches from place details straight into
-  // directions mode, not stacking both.
-  const openDirectionsTo = (node) => {
-    setDirections({
-      fromQuery: current?.name || "",
-      fromId: current?.id || null,
-      toQuery: node.name,
-      toId: node.id,
-      path: null,
-      stepIndex: 0,
-      error: "",
-      editingField: null,
-      kind: "point",
-    });
+  const showDirections = (next) => {
+    setDirections(next);
     setSearchQuery("");
     searchInputRef.current?.blur();
     setPanelMode("directions");
   };
+
+  // Opening directions always REPLACES whatever the panel was showing,
+  // same as web/PWA — Maps switches from place details straight into
+  // directions mode, not stacking both.
+  const openDirectionsTo = (node) => showDirections(route.openDirectionsTo(current, node));
 
   // Tracked the moment a route resolves: directions.path flips from falsy
   // to a real array once per route.
@@ -351,24 +329,7 @@ export default function MainScreen() {
   // The Directions tab: back to the route in progress if there is one
   // (switching tabs keeps it), otherwise a fresh one from where you're
   // standing, with the destination left to pick.
-  const openDirectionsPanel = () => {
-    if (!directions) {
-      setDirections({
-        fromQuery: current?.name || "",
-        fromId: current?.id || null,
-        toQuery: "",
-        toId: null,
-        path: null,
-        stepIndex: 0,
-        error: "",
-        editingField: null,
-        kind: "point",
-      });
-    }
-    setSearchQuery("");
-    searchInputRef.current?.blur();
-    setPanelMode("directions");
-  };
+  const openDirectionsPanel = () => showDirections(directions || route.openDirections(current));
 
   // The Nearest exit sheet's DIRECTIONS button: back to ordinary
   // directions from where you are now, keeping the destination that was
@@ -377,75 +338,29 @@ export default function MainScreen() {
   const switchToDirections = () => {
     setAutoWalking(false);
     const planned = plannedDestinationRef.current;
-    setDirections({
-      fromQuery: current?.name || "",
-      fromId: current?.id || null,
-      toQuery: planned?.toQuery || "",
-      toId: planned?.toId || null,
-      path: null,
-      stepIndex: 0,
-      error: "",
-      editingField: null,
-      kind: "point",
-    });
+    setDirections({ ...route.openDirections(current), toQuery: planned?.toQuery || "", toId: planned?.toId || null });
   };
 
   // The Directions sheet's NEAREST EXIT button: replaces whatever route was
   // being planned with the route to the nearest Emergency Exit Destination
-  // Point an admin ticked (utils/evacuation.js, ported from the web app so
-  // both lead a visitor the same way). It never uses an elevator, takes the
+  // Point an admin ticked (utils/evacuation.js, through directionsRoute's
+  // getEmergencyDirections, as on web). It never uses an elevator, takes the
   // hidden fire stairs listed by Emergency Exit markers, and never climbs
-  // above the visitor's floor or Floor 1 unless nothing else exists. Routes
-  // are limited to the campus you're on (GD1-GD3 are one campus, Digital
-  // Campus another), so it never sends you across to another campus.
-  //
-  // `blocked` is the node ids the visitor reported impassable with "This way
-  // is blocked"; the route is recomputed around them from `fromNode`.
-  const exitDirections = (fromNode, blocked = []) => {
-    const campus = campusOf(fromNode.building);
-    const campusNodes = nodes.filter((n) => campusOf(n.building) === campus);
-    const result = findEvacuationRoute(campusNodes, fromNode.id, { blocked });
-    const destination = result ? nodes.find((n) => n.id === result.destinationId) : null;
-    return {
-      fromQuery: fromNode.name,
-      fromId: fromNode.id,
-      toQuery: destination?.name || "",
-      toId: destination?.id || null,
-      path: result?.path || null,
-      stepIndex: 0,
-      error: result
-        ? ""
-        : blocked.length
-          ? "No other way out was found from here. Emergency hotline: 161"
-          : "No safe way out was found from here. Emergency hotline: 161",
-      editingField: null,
-      kind: "exit",
-      emergency: { blocked, ascends: !!result?.ascends },
-    };
-  };
-
+  // above the visitor's floor or Floor 1 unless nothing else exists.
   const openDirectionsToNearestExit = () => {
     if (!current || !nodes) return;
     setAutoWalking(false);
     plannedDestinationRef.current =
-      directions?.kind === "point" && directions.toId ? { toQuery: directions.toQuery, toId: directions.toId } : null;
-    setDirections(exitDirections(current));
-    setSearchQuery("");
-    searchInputRef.current?.blur();
-    setPanelMode("directions");
+      !directions?.emergency && directions?.toId ? { toQuery: directions.toQuery, toId: directions.toId } : null;
+    showDirections(route.getEmergencyDirections(route.openDirections(current), nodes));
   };
 
   // "This way is blocked": the visitor reports the route's next stop
   // impassable (smoke, fire, a locked door). It is excluded for the rest of
-  // this emergency route and the way out is recomputed from where they stand;
-  // with the lowest fire stairs landing blocked that is the next landing.
+  // this emergency route and the way out is recomputed from where they stand.
   const handleBlocked = () => {
-    if (!directions?.emergency || !directions.path || !nodes) return;
-    const here = directions.path.includes(currentId) ? currentId : directions.path[directions.stepIndex];
-    const blockedId = directions.path[directions.path.indexOf(here) + 1];
-    const fromNode = nodes.find((n) => n.id === here);
-    if (!blockedId || !fromNode) return;
-    setDirections(exitDirections(fromNode, [...new Set([...directions.emergency.blocked, blockedId])]));
+    if (!nodes) return;
+    setDirections((d) => route.blockNextStop(d, nodes, currentId));
   };
 
   const closeDirections = () => {
@@ -454,101 +369,69 @@ export default function MainScreen() {
     closePanel();
   };
 
-  const updateDirectionsField = (field, value) => {
-    setDirections((d) => ({
-      ...d,
-      [field === "from" ? "fromQuery" : "toQuery"]: value,
-      [field === "from" ? "fromId" : "toId"]: null,
-      editingField: field,
-      path: null,
-      error: "",
-    }));
-  };
+  // From/To suggestions: rooms first, then places, no duplicates, the same
+  // as the search sheet (and as web's directions panel).
+  const directionsQuery = route.activeQuery(directions);
+  const directionsSuggestions = useMemo(() => {
+    if (!directions?.editingField || !directionsQuery.trim()) return { rooms: [], places: [] };
+    const { roomResults: rooms, placeResults: places } = searchCampus(directionsQuery, nodes, searchableRooms);
+    return { rooms, places };
+  }, [directions?.editingField, directionsQuery, nodes, searchableRooms]);
 
-  const pickDirectionsField = (field, node) => {
-    setDirections((d) => ({
-      ...d,
-      [field === "from" ? "fromQuery" : "toQuery"]: node.name,
-      [field === "from" ? "fromId" : "toId"]: node.id,
-      editingField: null,
-    }));
-  };
-
-  const directionsFieldMatches = useMemo(() => {
-    if (!directions?.editingField || !nodes) return [];
-    const q = directions.editingField === "from" ? directions.fromQuery : directions.toQuery;
-    return searchNodes(q, nodes);
-  }, [directions?.editingField, directions?.fromQuery, directions?.toQuery, nodes]);
-
-  // The route for the picked From/To, or null (with the reason shown).
+  // "Get directions": resolves typed text by exact name when nothing was
+  // picked, then computes the route; a route that changes floor may come
+  // back asking stairs or elevator first (pendingModeChoice). Returns the
+  // route's path, or null.
   const computeRoute = () => {
-    if (!directions?.fromId || !directions?.toId) {
-      setDirections((d) => ({ ...d, error: "Pick both a starting point and a destination from the suggestions." }));
-      return null;
-    }
-    const path = findPath(nodes, directions.fromId, directions.toId);
-    if (!path) {
-      setDirections((d) => ({ ...d, path: null, error: "No walkable route found between these two points yet." }));
-      return null;
-    }
-    setDirections((d) => ({ ...d, path, stepIndex: 0, error: "" }));
-    return path;
+    if (!directions || !nodes) return null;
+    const next = route.getDirections(directions, nodes, searchableRooms);
+    setDirections(next);
+    return next.path;
   };
 
   const handleGetDirections = () => {
     computeRoute();
   };
 
+  const handleChooseMode = (mode) => setDirections((d) => route.chooseTransportMode(d, mode));
+
   const handleStartWalking = () => {
     if (!directions?.path) return;
     jumpToNode(directions.path[0]);
-    setDirections((d) => (d ? { ...d, stepIndex: 0 } : d));
+    setDirections((d) => (d ? route.restartRoute(d) : d));
     setPanelMode("directions"); // jumpToNode closes the panel — reopen it for the route in progress
   };
 
+  // A walk along the route's next link, an elevator ride, or (on a Nearest
+  // exit route) the hidden fire stairs, as route.nextStep says. Not
+  // jumpToNode: that clears search and closes the panel, and we want to stay
+  // in the directions view while progressing through the route. An elevator
+  // or fire stairs step carries its own arrival view (out of the doors).
   const handleWalkToNextStop = () => {
-    if (!directions?.path) return;
-    const nextId = directions.path[directions.stepIndex + 1];
-    if (!nextId) return;
-    // A walk along the route's next link (or an elevator ride, when the
-    // route changes floor by elevator), not jumpToNode — that clears
-    // search/closes the panel, and we want to stay in the directions view
-    // while progressing through the route.
-    const hotspot = current?.hotspots?.[nextId];
-    const ride = !hotspot && nodes ? elevatorRideBetween(nodes, currentId, nextId) : null;
-    // The hidden fire stairs of a Nearest Exit route: taken through the
-    // emergency exit marker, stepping out facing away from the landing's own
-    // door when it has one.
-    const stairs = !hotspot && !ride && directions.emergency && nodes ? fireStairsBetween(nodes, currentId, nextId) : null;
-    if (stairs) {
-      goTo(nextId, stairs.toMarker ? { yaw: arrivalYawFromExit(stairs.toMarker) } : undefined, { ride: true });
+    const step = route.nextStep(directions, hotspots, nodes);
+    if (!step) return;
+    if (step.kind === "walk") {
+      goTo(step.id, { yaw: step.yaw, defaultYaw: step.defaultYaw, defaultPitch: step.defaultPitch });
       return;
     }
-    goTo(nextId, ride ? { yaw: arrivalYawFromLanding(ride.toMarker) } : hotspot, { ride: !!ride });
+    goTo(step.id, step.yaw == null ? undefined : { yaw: step.yaw }, { ride: true });
   };
 
-  const arrived = directions?.path && directions.stepIndex === directions.path.length - 1;
-  const nextStopId = directions?.path?.[directions.stepIndex + 1] || null;
-  const nextStopName = nextStopId ? (nodes?.find((n) => n.id === nextStopId)?.name || nextStopId) : null;
-  // The floor the route's next step rides to, when that step is an elevator.
-  const nextElevatorRide =
-    nextStopId && currentId && !current?.hotspots?.[nextStopId] && nodes
-      ? elevatorRideBetween(nodes, currentId, nextStopId)
-      : null;
-  const nextElevatorFloor = nextElevatorRide?.toFloor ?? null;
-  // The step down the hidden fire stairs, when that is a Nearest Exit route's
-  // next step: { markerId, floor, goesDown }.
-  const nextFireStairsStep =
-    nextStopId && currentId && directions?.emergency && !current?.hotspots?.[nextStopId] && !nextElevatorRide && nodes
-      ? fireStairsBetween(nodes, currentId, nextStopId)
-      : null;
-  const nextFireStairs = nextFireStairsStep
-    ? {
-        markerId: nextFireStairsStep.fromMarker.id,
-        floor: nextFireStairsStep.toFloor,
-        goesDown: nextFireStairsStep.toFloor < Number(current?.floor),
-      }
-    : null;
+  // Where the visitor is along the route: whether they've arrived, the next
+  // stop, which way to turn, and whether the next step is an elevator ride
+  // ({ markerId, floor }) or the hidden fire stairs ({ markerId, floor,
+  // goesDown }).
+  const progress = route.routeProgress(directions, { byId, hotspots, entryYaw: entryView.yaw, nodes });
+  const { arrived, nextStopId, nextStopName, nextElevator, nextFireStairs, turnInstruction } = progress;
+  const nextElevatorFloor = nextElevator?.floor ?? null;
+
+  // "Skip hallway": once walking, the end of the straight run ahead in one
+  // move (see route.straightRunAhead).
+  const skip = route.hasStartedWalking(directions, currentId) ? route.straightRunAhead(directions, byId) : null;
+  const handleSkipAhead = () => {
+    if (!skip) return;
+    goTo(skip.targetId, skip.angle, { from: skip.via[skip.via.length - 1] });
+  };
 
   // Room sheet's "Get Directions" now opens the real Directions sheet
   // instead of jumping directly. "360° View" still just jumps, matching
@@ -700,7 +583,7 @@ export default function MainScreen() {
               // As on web: the route's next hotspot turns green, and an
               // elevator landing that is the next step pulses.
               highlightedId={nextStopId}
-              highlightedMarkerId={nextElevatorRide?.fromMarker?.id ?? nextFireStairs?.markerId ?? null}
+              highlightedMarkerId={nextElevator?.markerId ?? nextFireStairs?.markerId ?? null}
               previewsHidden={!!elevatorPicker}
               gyroEnabled={gyroOn}
               entryYaw={entryView.yaw}
@@ -795,6 +678,7 @@ export default function MainScreen() {
           recentRooms={recentRooms}
           onRemoveRecent={removeRecentRoom}
           suggestions={randomSuggestions}
+          placeSuggestions={randomPlaceSuggestions}
           roomResults={roomResults}
           placeResults={placeResults}
           onPickRoom={openRoomCard}
@@ -806,11 +690,9 @@ export default function MainScreen() {
 
       {panelMode === "directory" && (
         <DirectorySheet
-          nodes={nodes}
           searchableRooms={searchableRooms}
           currentNode={current}
           onPickRoom={openRoomCard}
-          onPickPlace={(node) => jumpToDestination(node.id)}
           onClose={closePanel}
           bottomOffset={sheetBottom}
           topLimit={sheetTop}
@@ -857,14 +739,18 @@ export default function MainScreen() {
       {panelMode === "directions" && directions && (
         <MobileDirectionsSheet
           directions={directions}
-          fieldMatches={directionsFieldMatches}
+          suggestions={directionsSuggestions}
           onClose={closeDirections}
-          onChangeFrom={(text) => updateDirectionsField("from", text)}
-          onChangeTo={(text) => updateDirectionsField("to", text)}
-          onFocusFrom={() => setDirections((d) => (d ? { ...d, editingField: "from" } : d))}
-          onFocusTo={() => setDirections((d) => (d ? { ...d, editingField: "to" } : d))}
-          onPickFrom={(node) => pickDirectionsField("from", node)}
-          onPickTo={(node) => pickDirectionsField("to", node)}
+          onChangeFrom={(text) => setDirections((d) => route.editField(d, "from", text))}
+          onChangeTo={(text) => setDirections((d) => route.editField(d, "to", text))}
+          onFocusFrom={() => setDirections((d) => (d ? route.focusField(d, "from") : d))}
+          onFocusTo={() => setDirections((d) => (d ? route.focusField(d, "to") : d))}
+          onPickRoom={(field, room) => setDirections((d) => route.pickRoomField(d, field, room))}
+          onPickPlace={(field, node) => setDirections((d) => route.pickNodeField(d, field, node))}
+          onChooseMode={handleChooseMode}
+          skip={skip}
+          onSkipAhead={handleSkipAhead}
+          turnInstruction={turnInstruction}
           onGetDirections={handleGetDirections}
           onStartWalking={handleStartWalking}
           onWalkNext={handleWalkToNextStop}

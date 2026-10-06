@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { View, Text, TextInput, Pressable, StyleSheet, ScrollView } from "react-native";
-import { buildingLabel, floorLabel } from "../utils/constants";
+import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Linking } from "react-native";
+import { buildingLabel, floorLabel, EMERGENCY_CONTACTS } from "../utils/constants";
+import { roomSubtitle } from "./SearchSheet";
 import { colors, typography, radii, spacing } from "../theme";
 import BottomSheet from "./BottomSheet";
 import Button from "./Button";
@@ -15,6 +16,13 @@ import Icon from "./Icon";
 // to the emergency variant: titled NEAREST EXIT, destination auto-picked,
 // red top edge — whose header has a DIRECTIONS pill to switch back. The
 // sheet is only ever as tall as its content (no empty space below).
+//
+// The route itself is utils/directionsRoute.js, shared with the web app, so
+// the panel shows what web's does: From/To suggestions are rooms first, then
+// places; a route that changes floor asks STAIRS or ELEVATOR when both work
+// and differ; each step says which way to turn; SKIP HALLWAY jumps to the
+// end of a straight run; and a Nearest exit route always lists the
+// emergency contacts.
 
 function RouteField({ value, onChangeText, onFocus, placeholder, editable = true }) {
   return (
@@ -34,16 +42,27 @@ function RouteField({ value, onChangeText, onFocus, placeholder, editable = true
 // Peek: just the DIRECTIONS / NEAREST EXIT title showing.
 const PEEK_HEIGHT = 84;
 
+// Opens the phone's dialer; a number field can hold more than one
+// ("161 or (046) 417-0207"), so the dialer gets the first.
+function dial(number) {
+  const first = number.split(/\bor\b|[/,;]/i)[0];
+  Linking.openURL(`tel:${first.replace(/[^\d+]/g, "")}`).catch(() => {});
+}
+
 export default function MobileDirectionsSheet({
   directions,
-  fieldMatches,
+  suggestions,
   onClose,
   onChangeFrom,
   onChangeTo,
   onFocusFrom,
   onFocusTo,
-  onPickFrom,
-  onPickTo,
+  onPickRoom,
+  onPickPlace,
+  onChooseMode,
+  onSkipAhead,
+  skip = null,
+  turnInstruction = null,
   onGetDirections,
   onStartWalking,
   onWalkNext,
@@ -66,19 +85,29 @@ export default function MobileDirectionsSheet({
   const contentHeight = headerHeight && bodyHeight ? headerHeight + bodyHeight : undefined;
 
   const hasPath = !!directions.path;
-  const isEmergency = directions.kind === "exit";
+  const isEmergency = !!directions.emergency;
+  const modeChoice = directions.pendingModeChoice;
   const notStarted = hasPath && directions.stepIndex === 0 && currentId !== directions.path[0];
 
-  const matches = (field, onPick) =>
+  const matches = (field) =>
     directions.editingField === field &&
-    fieldMatches.length > 0 && (
+    suggestions.rooms.length + suggestions.places.length > 0 && (
       <View style={styles.suggestions}>
-        {fieldMatches.map((n) => (
+        {suggestions.rooms.map((r) => (
           <ListRow
-            key={n.id}
+            key={`room:${r.roomName}`}
+            title={r.roomName}
+            subtitle={roomSubtitle(r)}
+            onPress={() => onPickRoom(field, r)}
+            trailing="none"
+          />
+        ))}
+        {suggestions.places.map((n) => (
+          <ListRow
+            key={`place:${n.id}`}
             title={n.name}
             subtitle={`${buildingLabel(n.building)} - ${floorLabel(n.floor)}`}
-            onPress={() => onPick(n)}
+            onPress={() => onPickPlace(field, n)}
             trailing="none"
           />
         ))}
@@ -141,7 +170,7 @@ export default function MobileDirectionsSheet({
           (an empty white sheet). Remounting starts it at the top and
           re-measures it. */}
       <ScrollView
-        key={directions.kind}
+        key={isEmergency ? "exit" : "point"}
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
         onContentSizeChange={(_, h) => setBodyHeight(h)}
@@ -154,7 +183,7 @@ export default function MobileDirectionsSheet({
           </View>
           <View style={styles.fields}>
             <RouteField value={directions.fromQuery} onChangeText={onChangeFrom} onFocus={onFocusFrom} placeholder="Starting point" />
-            {matches("from", onPickFrom)}
+            {matches("from")}
             {/* Emergency routing auto-picks the destination — no editable
                 "To" field, since second-guessing the computed nearest exit
                 isn't something to invite in an actual emergency. */}
@@ -165,7 +194,7 @@ export default function MobileDirectionsSheet({
               placeholder={isEmergency ? "Nearest exit" : "Choose destination..."}
               editable={!isEmergency}
             />
-            {!isEmergency && matches("to", onPickTo)}
+            {!isEmergency && matches("to")}
           </View>
         </View>
 
@@ -174,9 +203,48 @@ export default function MobileDirectionsSheet({
         {isEmergency && hasPath && !arrived && (
           <Text style={styles.emergencyText}>
             <Text style={styles.progressBold}>Use the stairs, not elevators.</Text>
-            {directions.emergency?.ascends ? " This route goes up: no level or downward way was found. Call for help." : ""}
-            {" "}Emergency hotline: <Text style={styles.progressBold}>161</Text>
+            {directions.emergency.ascends ? " This route goes up: no level or downward way was found. Call for help." : ""}
           </Text>
+        )}
+
+        {/* Always there on a Nearest exit route, as on web, so a visitor who
+            gets stuck (no route, blocked way, no way down) has someone to
+            call. Tapping one opens the dialer. */}
+        {isEmergency && (
+          <View style={styles.contacts}>
+            <Text style={styles.contactsTitle}>Emergency contacts</Text>
+            {EMERGENCY_CONTACTS.map((c) => (
+              <Pressable
+                key={c.label}
+                onPress={() => dial(c.number)}
+                style={({ pressed }) => [styles.contactRow, pressed && styles.contactRowPressed]}
+                accessibilityRole="link"
+                accessibilityLabel={`Call ${c.label}, ${c.number}`}
+              >
+                <Icon name="call" size={14} color={colors.emergency} />
+                <View style={styles.contactText}>
+                  <Text style={styles.contactLabel}>{c.label}</Text>
+                  <Text style={styles.contactNumber}>{c.number}</Text>
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        )}
+
+        {/* The route changes floor and both a stairs-only and an
+            elevator-only route exist and differ: the visitor picks. */}
+        {modeChoice && (
+          <>
+            <Text style={styles.progressText}>This route changes floor. How would you like to go?</Text>
+            <Button label="Take the stairs" icon="stairs" onPress={() => onChooseMode("stairs")} style={styles.actionBtn} />
+            <Button
+              label="Take the elevator"
+              icon="elevator"
+              variant="neutral"
+              onPress={() => onChooseMode("elevator")}
+              style={styles.actionBtn}
+            />
+          </>
         )}
 
         {nextFireStairs && !arrived && (
@@ -192,7 +260,12 @@ export default function MobileDirectionsSheet({
         {hasPath && !arrived && (
           <Text style={styles.progressText}>
             Stop {directions.stepIndex + 1} of {directions.path.length}
-            {nextStopName ? <Text style={styles.progressBold}>{"  ·  "}Next: {nextStopName}</Text> : null}
+            {nextStopName ? (
+              <Text style={styles.progressBold}>
+                {"  ·  "}
+                {turnInstruction ? `${turnInstruction} ${nextStopName}` : `Next: ${nextStopName}`}
+              </Text>
+            ) : null}
           </Text>
         )}
 
@@ -205,7 +278,7 @@ export default function MobileDirectionsSheet({
           </>
         ) : (
           <>
-            {!hasPath && !isEmergency && (
+            {!hasPath && !isEmergency && !modeChoice && (
               <Button label="Get directions" icon="directions" onPress={onGetDirections} style={styles.actionBtn} />
             )}
             {hasPath && notStarted && !autoWalking && (
@@ -225,17 +298,31 @@ export default function MobileDirectionsSheet({
                 style={styles.actionBtn}
               />
             )}
+            {/* The end of the straight hallway ahead in one move (see
+                straightRunAhead); never offered on a Nearest exit route,
+                where each stop is seen and can be reported blocked. */}
+            {skip && !autoWalking && (
+              <Button
+                label={`Skip hallway (${skip.count} stops)`}
+                iconRight="proceedNext"
+                variant="neutral"
+                onPress={onSkipAhead}
+                style={styles.actionBtn}
+              />
+            )}
             {isEmergency && hasPath && onBlocked && (
               <Button label="This way is blocked" variant="neutral" onPress={onBlocked} style={styles.actionBtn} />
             )}
-            <Button
-              label={autoWalking ? "Pause walk" : "Auto walk (every 3s)"}
-              icon={autoWalking ? "pauseWalk" : "autoWalk"}
-              variant="neutral"
-              onPress={onToggleAutoWalk}
-              disabled={isEmergency && !hasPath}
-              style={styles.actionBtn}
-            />
+            {!modeChoice && (
+              <Button
+                label={autoWalking ? "Pause walk" : "Auto walk (every 3s)"}
+                icon={autoWalking ? "pauseWalk" : "autoWalk"}
+                variant="neutral"
+                onPress={onToggleAutoWalk}
+                disabled={isEmergency && !hasPath}
+                style={styles.actionBtn}
+              />
+            )}
           </>
         )}
       </ScrollView>
@@ -317,6 +404,31 @@ const styles = StyleSheet.create({
   progressText: { ...typography.label, marginTop: spacing.lg },
   progressBold: { color: colors.textPrimary },
   emergencyText: { ...typography.caption, color: colors.danger, marginTop: spacing.md },
+  contacts: {
+    marginTop: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: "hidden",
+  },
+  contactsTitle: {
+    ...typography.eyebrow,
+    color: colors.emergency,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+  },
+  contactRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  contactRowPressed: { backgroundColor: colors.surfaceSunken },
+  contactText: { flex: 1 },
+  contactLabel: { ...typography.caption, color: colors.textPrimary },
+  contactNumber: { ...typography.caption },
   stairsBanner: {
     marginTop: spacing.md,
     padding: spacing.md,

@@ -25,3 +25,9 @@ Native doesn't render reliably, so each icon is exported to PNG instead:
 To add or update an icon, render the SVG (headless Chrome at 6x works),
 trim it to its glyph, make it white on transparent, cap the longest side at
 96 px, save it here, and add it to `ICONS` in `Icon.js`.
+
+`call.png`, `stairs.png` and `elevator.png` are the board's own
+(`ui-branding-guidelines/icons - white/`). `link.png` is not: it is Phosphor
+Icons "link-simple", bold weight (MIT), exported from the web app's
+`src/assets/icons/link-white.svg`, the icon chosen for web's room card over
+the board's `link-chain.svg`.

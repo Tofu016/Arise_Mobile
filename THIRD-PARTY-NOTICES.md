@@ -36,6 +36,7 @@ The runtime dependency tree that is compiled into the app is entirely permissive
 | Apache-2.0 | `@infinitered/react-native-mlkit-*` |
 | BSD-3-Clause / BSD-2-Clause / ISC / 0BSD | assorted transitive utilities |
 | SIL Open Font License 1.1 | icon fonts bundled by `@expo/vector-icons` (Font Awesome Free fonts, Material Design Icons) |
+| MIT (artwork) | `assets/icons/link.png`: Phosphor Icons "link-simple", bold weight, Copyright (c) 2023 Phosphor Icons |
 
 No copyleft (GPL / LGPL / AGPL) or share-alike (CC-BY-SA) licensed code is
 compiled into the distributed application.

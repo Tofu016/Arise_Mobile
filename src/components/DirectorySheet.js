@@ -4,6 +4,9 @@ import BottomSheet from "./BottomSheet";
 import ListRow from "./ListRow";
 import Icon from "./Icon";
 import { allBuildings, floorLabel } from "../utils/constants";
+import { campusOf } from "../utils/buildingStore";
+import { listedRooms } from "../utils/directorySettings";
+import { useDirectorySettings } from "../hooks/useDirectorySettings";
 import { colors, typography, radii, spacing } from "../theme";
 
 // The brand board's DIRECTORY sheet (the Location tab): every building as
@@ -11,10 +14,11 @@ import { colors, typography, radii, spacing } from "../theme";
 // under floor headings (UG, FLOOR 1, FLOOR 2…); an open building's name
 // turns red. One building open at a time.
 //
-// Every room in the tour is listed — each node's "Rooms served" — not only
-// those with details. A room with details (see useSearchableRooms) has a
-// red chevron and opens its room card; any other room takes you to its spot
-// in the 360° tour.
+// Lists the rooms and facilities the admin chose for the Directory on the
+// web app's Directory page (hidden campuses and buildings, and each
+// building's listed rooms, see utils/directorySettings.js), the same list
+// web's sidebar Directory shows. Every room opens its room card, which says
+// so when the room has no details yet. Search still finds every room.
 //
 // "You are here": the building you're standing in gets a red badge and
 // starts open, and your floor's heading gets a pin.
@@ -32,11 +36,9 @@ function buildingHeading(label) {
 const PEEK_HEIGHT = 96;
 
 export default function DirectorySheet({
-  nodes,
   searchableRooms,
   currentNode,
   onPickRoom,
-  onPickPlace,
   onClose,
   bottomOffset,
   topLimit,
@@ -49,40 +51,32 @@ export default function DirectorySheet({
   const [listHeight, setListHeight] = useState(0);
   const contentHeight = titleHeight && listHeight ? titleHeight + listHeight : undefined;
 
-  const sections = useMemo(() => {
-    // Rooms with details, by name, as useSearchableRooms matches them.
-    const detailed = new Map(searchableRooms.map((r) => [r.roomName.trim().toUpperCase(), r]));
+  const settings = useDirectorySettings();
 
-    // building -> floor -> rooms; a room served by several nodes is listed
-    // once, at the first of them.
-    const byBuilding = new Map();
-    const seen = new Set();
-    for (const node of nodes || []) {
-      for (const roomName of node.rooms || []) {
-        const key = `${node.building}|${roomName.trim().toUpperCase()}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        if (!byBuilding.has(node.building)) byBuilding.set(node.building, new Map());
-        const floors = byBuilding.get(node.building);
-        if (!floors.has(node.floor)) floors.set(node.floor, []);
-        floors.get(node.floor).push({ roomName, node, room: detailed.get(roomName.trim().toUpperCase()) || null });
-      }
-    }
-
-    return allBuildings().map((b) => {
-      const floors = byBuilding.get(b.id) || new Map();
-      return {
-        id: b.id,
-        heading: buildingHeading(b.label),
-        floors: [...floors.entries()]
-          .sort(([a], [z]) => a - z) // UG (-1) first, then up
-          .map(([floor, rooms]) => ({
-            floor,
-            rooms: rooms.sort((a, z) => a.roomName.localeCompare(z.roomName, undefined, { numeric: true })),
-          })),
-      };
-    });
-  }, [nodes, searchableRooms]);
+  const sections = useMemo(
+    () =>
+      allBuildings()
+        .filter((b) => !settings.hiddenCampuses.includes(campusOf(b.id)) && !settings.hiddenBuildings.includes(b.id))
+        .map((b) => {
+          const floors = new Map(); // floor -> rooms
+          for (const room of listedRooms(settings, b.id, searchableRooms)) {
+            const floor = room.node.floor;
+            if (!floors.has(floor)) floors.set(floor, []);
+            floors.get(floor).push(room);
+          }
+          return {
+            id: b.id,
+            heading: buildingHeading(b.label),
+            floors: [...floors.entries()]
+              .sort(([a], [z]) => a - z) // UG (-1) first, then up
+              .map(([floor, rooms]) => ({
+                floor,
+                rooms: rooms.sort((a, z) => a.roomName.localeCompare(z.roomName, undefined, { numeric: true })),
+              })),
+          };
+        }),
+    [searchableRooms, settings]
+  );
 
   return (
     <BottomSheet
@@ -145,8 +139,7 @@ export default function DirectorySheet({
                           <ListRow
                             key={r.roomName}
                             title={r.roomName}
-                            onPress={() => (r.room ? onPickRoom(r.room) : onPickPlace(r.node))}
-                            trailing={r.room ? "chevron" : "none"}
+                            onPress={() => onPickRoom(r)}
                             indent={spacing.md}
                           />
                         ))}

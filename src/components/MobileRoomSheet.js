@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView, Image } from "react-native";
+import { View, Text, Pressable, StyleSheet, ScrollView, Image, Linking } from "react-native";
 import { buildingLabel, floorLabel } from "../utils/constants";
 import { photoUrl } from "../api/client";
 import { colors, typography, radii, spacing } from "../theme";
@@ -13,10 +13,27 @@ import Icon from "./Icon";
 // a different room springs it back to its opening height (resetKey).
 //
 // The bookmark saves the room on this phone (see useSavedRooms): grey
-// when not saved, red when it is.
+// when not saved, red when it is. Saving is keyed on the room's details
+// record, so a room without one (placard null) has no bookmark.
 //
-// Not built yet, per the current scope: the CALL button (rooms have no
-// phone number yet).
+// The room's link and contact number, when an admin set them, are tappable
+// rows: the link opens in the browser, the number in the phone's dialer.
+// The carousel shows every flat photo in the order an admin sorted them;
+// 360 photos are left out, since 360° VIEW already covers the panorama.
+// A room with no details at all says "No information.", as on web.
+
+// Admins may type a URL without a protocol ("example.com"), so one is added
+// for opening it; the row shows the link exactly as typed. Same as web.
+function linkHref(link) {
+  return /^https?:\/\//i.test(link) ? link : `https://${link}`;
+}
+
+// A number field can hold more than one ("161 or (046) 417-0207"): the
+// dialer gets the first, digits (and a leading +) only.
+function telHref(number) {
+  const first = number.split(/\bor\b|[/,;]/i)[0];
+  return `tel:${first.replace(/[^\d+]/g, "")}`;
+}
 
 // Loaded straight from the serve URL — React Native's <Image> fetches,
 // decodes and caches it natively, WebP included. Keyed by photo by the
@@ -77,8 +94,11 @@ export default function MobileRoomSheet({
 }) {
   const { roomName, node, placard } = room;
   const [expanded, setExpanded] = useState(false);
-  const photos = [placard?.photo].filter(Boolean);
+  const photos = (placard?.photos || []).filter((p) => p.kind === "flat").map((p) => p.path);
   const about = [placard?.department, placard?.roomDescription].filter(Boolean).join(", ");
+  const link = placard?.link || "";
+  const contactNumber = placard?.contactNumber || "";
+  const hasInfo = !!(about || link || contactNumber || photos.length > 0);
 
   return (
     <BottomSheet
@@ -93,13 +113,15 @@ export default function MobileRoomSheet({
         <View style={styles.titleRow}>
           <Text style={styles.title}>{roomName}</Text>
           <View style={styles.titleActions}>
-            <RoundButton
-              icon="save"
-              label={saved ? `Remove ${roomName} from saved` : `Save ${roomName}`}
-              accessibilityState={{ selected: saved }}
-              active={saved}
-              onPress={onToggleSave}
-            />
+            {placard && (
+              <RoundButton
+                icon="save"
+                label={saved ? `Remove ${roomName} from saved` : `Save ${roomName}`}
+                accessibilityState={{ selected: saved }}
+                active={saved}
+                onPress={onToggleSave}
+              />
+            )}
             <RoundButton icon="terminate" label="Close" onPress={onClose} />
           </View>
         </View>
@@ -116,10 +138,40 @@ export default function MobileRoomSheet({
           </View>
         )}
 
+        {!!contactNumber && (
+          <Pressable
+            style={({ pressed }) => [styles.infoRow, pressed && styles.infoRowPressed]}
+            onPress={() => Linking.openURL(telHref(contactNumber)).catch(() => {})}
+            accessibilityRole="link"
+            accessibilityLabel={`Call ${contactNumber}`}
+          >
+            <Icon name="call" size={16} color={colors.gray500} />
+            <Text style={[styles.infoText, styles.infoStrong]} numberOfLines={2}>
+              {contactNumber}
+            </Text>
+          </Pressable>
+        )}
+
+        {!!link && (
+          <Pressable
+            style={({ pressed }) => [styles.infoRow, pressed && styles.infoRowPressed]}
+            onPress={() => Linking.openURL(linkHref(link)).catch(() => {})}
+            accessibilityRole="link"
+            accessibilityLabel={`Open ${link}`}
+          >
+            <Icon name="link" size={16} color={colors.gray500} />
+            <Text style={[styles.infoText, styles.infoStrong]} numberOfLines={1}>
+              {link}
+            </Text>
+          </Pressable>
+        )}
+
         <View style={styles.actionsRow}>
           <Button label="Directions" icon="directions" onPress={onGetDirections} size="sm" style={styles.actionBtn} />
           <Button label="360° View" variant="neutral" onPress={onView360} size="sm" style={styles.actionBtn} />
         </View>
+
+        {!hasInfo && <Text style={styles.noInfo}>No information.</Text>}
 
         {!!about && (
           <View style={styles.aboutBox}>
@@ -185,7 +237,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     marginBottom: spacing.md,
   },
+  infoRowPressed: { backgroundColor: colors.borderStrong },
   infoText: { flex: 1, ...typography.bodySmall, letterSpacing: 1 },
+  noInfo: { ...typography.bodySmall, paddingHorizontal: spacing.xs, marginBottom: spacing.md },
   infoStrong: { fontFamily: typography.bodySemiBold.fontFamily, color: colors.textSecondary },
   actionsRow: { flexDirection: "row", gap: spacing.sm, marginBottom: spacing.md },
   actionBtn: { flex: 1 },

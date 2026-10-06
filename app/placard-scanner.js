@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, Pressable, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -30,7 +30,10 @@ export default function PlacardScannerScreen() {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef(null);
-  const { searchableRooms } = useSearchableRooms();
+  // Only rooms with details: a scan leads on to the room's AR portal, which
+  // needs the details' 360 photo (and OCR search terms live there too).
+  const { searchableRooms: allRooms } = useSearchableRooms();
+  const searchableRooms = useMemo(() => allRooms.filter((r) => r.placard), [allRooms]);
 
   const [reticleMode, setReticleMode] = useState("horizontal");
 

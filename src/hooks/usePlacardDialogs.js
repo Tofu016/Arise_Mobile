@@ -11,16 +11,22 @@ function normalize(name) {
   return (name || "").trim().toUpperCase();
 }
 
+// Same mapping as the web app's utils/entities.js toDialog (keep in step).
+// `photos` is every photo in the order an admin sorted them, each with its
+// kind ("flat" or "360"). `photo360` is derived here (the first 360 photo)
+// for the AR portal, rather than read from the API's photo_360_path, which
+// it only still sends for older app builds.
 function toFrontendDialog(row) {
+  const photos = (row.photos || []).map((p) => ({ path: p.path, kind: p.kind === "360" ? "360" : "flat" }));
   return {
     id: row.id,
     roomName: row.room_name,
     roomDescription: row.description || "",
     department: row.department || "",
-    use: row.use || "",
+    contactNumber: row.contact_number || "",
     link: row.link || "",
-    photo: row.photo_path || "",
-    photo360: row.photo_360_path || "",
+    photos,
+    photo360: photos.find((p) => p.kind === "360")?.path || "",
     ocrSearchTerms: (row.search_terms || []).map((t) => t.term),
     createdAt: row.created_at,
     updatedAt: row.updated_at,

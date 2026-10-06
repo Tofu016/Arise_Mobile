@@ -56,3 +56,24 @@ export function findPath(nodes, fromId, toId, mode = "any") {
   }
   return null; // no route between these two nodes under this mode
 }
+
+// Turn-by-turn instruction ("Go straight through" / "Turn left toward" /
+// "Turn right toward" / "Turn around toward"), computed from data that
+// already exists; no new collection needed. entryYaw is the direction
+// you're currently facing (the yaw of the hotspot you just walked
+// through to arrive here); targetYaw is the yaw of the NEXT hotspot you
+// need to take. The relative angle between them is the actual turn.
+//
+// Yaw convention matches toPosition() in panoramaMath.js: 0 points along
+// -Z, increasing yaw rotates clockwise viewed from above, so a positive
+// clockwise delta is a RIGHT turn, negative is LEFT. Thresholds are
+// deliberately generous (25°/155°) since hotspot angles are placed by
+// eye, not surveyed: a real 5° kink shouldn't read as a "turn."
+export function getTurnInstruction(entryYaw, targetYaw) {
+  if (entryYaw == null || targetYaw == null) return null;
+  const delta = ((targetYaw - entryYaw + 540) % 360) - 180; // normalized to -180..+180
+  const abs = Math.abs(delta);
+  if (abs < 25) return "Go straight through";
+  if (abs > 155) return "Turn around toward";
+  return delta > 0 ? "Turn right toward" : "Turn left toward";
+}

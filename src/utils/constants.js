@@ -44,9 +44,24 @@ export const GROUND_FLOOR = 1;
 // The node types an admin can tick as an Emergency Exit Destination Point, plus
 // any node carrying an emergency exit marker (a fire door to the street).
 export const EMERGENCY_DESTINATION_TYPES = ["open_area", "parking", "lobby", "entrance"];
-// Extra hops of walking a route accepts to reach a protected fire stairwell
-// instead of an ordinary flight of stairs. Same value as the web app's.
-export const FIRE_STAIRS_PREFERENCE = 3;
+// How much a Nearest Exit route favors a protected fire stairwell over an
+// ordinary staircase, in extra hops of walking it will accept to reach one.
+// It is added to the cost of each flight of ordinary stairs (a floor change
+// through a Stairs node), so a fire exit within about this many hops further
+// than an ordinary staircase still wins, and a farther one loses. Distance is
+// hops between panoramas, not meters. 0 treats them alike. Must equal the
+// web app's value, or the two apps send a visitor different ways out.
+export const FIRE_STAIRS_PREFERENCE = 5;
+
+// Shown whenever the Nearest Exit route is on screen, so a visitor who gets
+// stuck (no route, blocked way, no way down) always has someone to call.
+// Same list as the web app's.
+export const EMERGENCY_CONTACTS = [
+  { label: "Bacoor City Priority Emergency Hotline", number: "161 or (046) 417-0207" },
+  { label: "Bureau of Fire Protection (BFP) Bacoor", number: "(046) 417-6060" },
+  { label: "Bacoor CDRRMO (Rescue)", number: "(046) 417-0727" },
+  { label: "Bacoor Police (PNP)", number: "(046) 417-6366" },
+];
 export const EMERGENCY_EXIT_MARKER = "emergency_exit";
 
 // Point-of-interest markers placed *within* a panorama at a fixed yaw/pitch —
@@ -65,4 +80,11 @@ export const MARKER_TYPES = [
 
 export function markerTypeInfo(typeId) {
   return MARKER_TYPES.find((t) => t.id === typeId) || MARKER_TYPES[1];
+}
+
+// Where a hotspot arrow sits when an admin hasn't placed it yet: spread
+// evenly around the horizon. Same fallback as the web app's.
+export function defaultHotspotAngle(index, total) {
+  const yaw = total > 0 ? (360 / total) * index : 0;
+  return { yaw, pitch: -10 };
 }

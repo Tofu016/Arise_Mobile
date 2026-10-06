@@ -31,6 +31,12 @@ const ICONS = {
   scanPortrait: { image: require("../../assets/icons/scan-portrait.png") },
   autoWalk: { image: require("../../assets/icons/play.png") },
   pauseWalk: { image: require("../../assets/icons/pause.png") },
+  call: { image: require("../../assets/icons/call.png") },
+  stairs: { image: require("../../assets/icons/stairs.png") },
+  elevator: { image: require("../../assets/icons/elevator.png") },
+  // Not the board's link-chain: Phosphor "link-simple" (MIT), the one the
+  // web app's room card uses, picked over the chain glyph there.
+  link: { image: require("../../assets/icons/link.png") },
   // Not in the board's set: the About tab, its feedback form (stars, the
   // "sent" check), FormField's show/hide password, and the development
   // build's server setting.

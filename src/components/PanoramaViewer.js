@@ -753,7 +753,7 @@ export default function PanoramaViewer({
     // Zoomed in, a drag turns the view less, so the scene still follows
     // the finger.
     const fov = r3fStateRef.current?.camera.fov ?? FOV;
-    const sensitivity = 0.15 * (fov / FOV);
+    const sensitivity = 0.25 * (fov / FOV);
     // Gyro mode: a drag shifts the phone's view instead of replacing it.
     if (gyroEnabled && gyroRef.current) {
       gyroOffsetRef.current = {
@@ -824,7 +824,14 @@ export default function PanoramaViewer({
       onResponderRelease={handleResponderRelease}
       onResponderTerminate={endPinch}
     >
+      {/* pointerEvents="none" reaches r3f's own touch layer. That layer
+          claims every touch at touch-down (a capture handler that always
+          says yes), so without this the container only took over on the
+          first move event. A tap with no finger jitter never sent one, and
+          was dropped: the "sometimes it takes two taps" bug. Taps are
+          raycast by hand below, so r3f's pointer events aren't needed. */}
       <Canvas
+        pointerEvents="none"
         camera={{ position: [0, 0, 0.1], fov: FOV }}
         onCreated={(state) => {
           r3fStateRef.current = state;

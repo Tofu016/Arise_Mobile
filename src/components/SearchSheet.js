@@ -18,7 +18,7 @@ const PEEK_HEIGHT = 92;
 
 export function roomSubtitle(room) {
   const where = `${buildingLabel(room.node.building)} - ${floorLabel(room.node.floor)}`;
-  const what = room.placard?.department || room.placard?.use || room.roomName;
+  const what = room.placard?.department || room.roomName;
   return `${where} > ${what}`;
 }
 
@@ -31,6 +31,7 @@ export default function SearchSheet({
   recentRooms,
   onRemoveRecent,
   suggestions,
+  placeSuggestions = [],
   roomResults,
   placeResults,
   onPickRoom,
@@ -117,6 +118,23 @@ export default function SearchSheet({
             <Text style={[styles.sectionLabel, styles.sectionLabelAlone]}>Suggested rooms</Text>
             {suggestions.map((r) => (
               <ListRow key={r.roomName} title={r.roomName} subtitle={roomSubtitle(r)} onPress={() => onPickRoom(r)} />
+            ))}
+          </>
+        )}
+
+        {/* Places fill whatever room suggestions didn't (see
+            pickLocationSuggestions), so the list isn't empty before any
+            room has details. */}
+        {!typing && placeSuggestions.length > 0 && (
+          <>
+            <Text style={[styles.sectionLabel, styles.sectionLabelAlone]}>Suggested places</Text>
+            {placeSuggestions.map((n) => (
+              <ListRow
+                key={n.id}
+                title={n.name}
+                subtitle={`${buildingLabel(n.building)} - ${floorLabel(n.floor)}`}
+                onPress={() => onPickPlace(n)}
+              />
             ))}
           </>
         )}

@@ -1,36 +1,23 @@
 import { useMemo } from "react";
 import { usePublicNodes } from "./usePublicNodes";
 import { usePlacardDialogs } from "./usePlacardDialogs";
+import { buildSearchableRooms } from "../utils/search";
 
-// Rooms with actual detail records (photo/description/department/use) —
-// built by matching each node's "Rooms served" entries against
-// placardDialogs, same as web. Only rooms an admin has actually gone
-// through Room Edit for show up here.
-//
-// Extracted out of the search feature (Stage 3c) into its own shared hook
-// so the placard scanner (Stage C) draws from the exact same data, rather
-// than duplicating this computation in two places.
+// Every room and facility in the tour, matched by name to its details
+// record (see utils/search.js buildSearchableRooms), built the same way as
+// the web app's: rooms and facilities with no Room Edit record are listed
+// too, with a null `placard`, so anything rendering a room must treat it as
+// optional. Search, the directory, directions and saved rooms all draw on
+// this one list. The placard scanner and AR portal keep to rooms with
+// details (a portal needs the room's 360 photo).
 export function useSearchableRooms() {
   const { nodes, error: nodesError } = usePublicNodes();
   const { getForRoom } = usePlacardDialogs();
 
-  const searchableRooms = useMemo(() => {
-    if (!nodes) return [];
-    const out = [];
-    const seen = new Set();
-    for (const n of nodes) {
-      for (const roomName of n.rooms || []) {
-        const key = roomName.trim().toUpperCase();
-        if (seen.has(key)) continue;
-        const placard = getForRoom(roomName);
-        if (!placard) continue;
-        seen.add(key);
-        out.push({ roomName, node: n, placard });
-      }
-    }
-    return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes, getForRoom]);
+  const searchableRooms = useMemo(
+    () => buildSearchableRooms(nodes, getForRoom, { includeWithoutDetails: true }),
+    [nodes, getForRoom]
+  );
 
   return { searchableRooms, nodes, error: nodesError };
 }

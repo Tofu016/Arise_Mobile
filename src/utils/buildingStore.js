@@ -49,3 +49,11 @@ export function getBuildings() {
 export function campusOf(buildingId) {
   return getBuildings().find((b) => b.id === buildingId)?.campusId ?? buildingId;
 }
+
+// For components: whether the building list has finished loading, or failed
+// to. The first landing waits on this so the Main Campus entrance (which
+// needs each building's campus) can win, as on web.
+export function useBuildingsSettled() {
+  const { data, error } = buildingsResource.useResource();
+  return data != null || error != null;
+}

@@ -7,16 +7,24 @@
 //   jump (search result, room, building pick, first landing) — the
 //        destination's own starting view if set, else dead ahead.
 
-// Deterministic "where do we start": prefer an entrance, in building order
-// (GD1, GD2, GD3, then any admin-added buildings), lowest floor first.
+// Deterministic "where do we start", as web's pickDefaultNode: the Main
+// Campus entrance (the node an admin flagged campusEntrance, shared across
+// GD1/GD2/GD3) wins outright when one exists, since that's the single front
+// door visitors should land at. Otherwise prefer an entrance, in building
+// order (GD1, GD2, GD3, then any admin-added buildings), lowest floor first.
 // Falls back to the first node at all if no entrances are tagged.
-export function pickDefaultNode(nodes, buildingOrder) {
+// `buildings` is the building list (utils/buildingStore.js) in display order.
+export function pickDefaultNode(nodes, buildings) {
   if (!nodes || nodes.length === 0) return null;
+  const campusOf = (buildingId) => buildings.find((b) => b.id === buildingId)?.campusId ?? buildingId;
+  const mainEntrance = nodes.find((n) => n.campusEntrance && campusOf(n.building) === "main");
+  if (mainEntrance) return mainEntrance;
   const entrances = nodes.filter((n) => n.type === "entrance");
   if (entrances.length === 0) return nodes[0];
+  const order = buildings.map((b) => b.id);
   return [...entrances].sort((a, b) => {
-    const ai = buildingOrder.indexOf(a.building);
-    const bi = buildingOrder.indexOf(b.building);
+    const ai = order.indexOf(a.building);
+    const bi = order.indexOf(b.building);
     if (ai !== bi) return ai - bi;
     return (a.floor ?? 0) - (b.floor ?? 0);
   })[0];
@@ -85,22 +93,37 @@ export function jumpEntryView(node) {
   };
 }
 
+// One campus has one position on the map: every building in it answers with
+// the coordinates of the first building of that campus that has any, so a
+// building whose own coordinates drifted (or were never set) cannot split a
+// campus in two. Same rule as web's campusPosition.
+function campusPosition(building, buildings) {
+  const campus = building.campusId ?? building.id;
+  const anchor = buildings.find((b) => (b.campusId ?? b.id) === campus && b.lat != null && b.lng != null);
+  return { campus, lat: anchor?.lat, lng: anchor?.lng };
+}
+
 // The cross-campus flyover for a move between two nodes (see
-// components/FlyoverPanel.js), or null when it isn't one: both buildings
-// need a location, and the locations must differ. Same rule as web's
-// findFlyover.
+// components/FlyoverPanel.js), or null when it isn't one: the two ends must
+// be in different campuses, both with real coordinates, and those must
+// differ. Moves inside one campus (GD1/GD2/GD3) never fly, whatever their
+// buildings' own coordinates say. Same rule as web's findFlyover.
 export function findFlyover(fromNode, toNode, buildings) {
   if (!fromNode || !toNode) return null;
   const from = buildings.find((b) => b.id === fromNode.building);
   const to = buildings.find((b) => b.id === toNode.building);
-  if (from?.lat == null || to?.lat == null) return null;
-  if (from.lat === to.lat && from.lng === to.lng) return null;
+  if (!from || !to) return null;
+  const a = campusPosition(from, buildings);
+  const b = campusPosition(to, buildings);
+  if (a.campus === b.campus) return null;
+  if (a.lat == null || b.lat == null) return null;
+  if (a.lat === b.lat && a.lng === b.lng) return null;
   return {
-    fromLat: from.lat,
-    fromLng: from.lng,
+    fromLat: a.lat,
+    fromLng: a.lng,
     fromLabel: from.label || fromNode.building,
-    toLat: to.lat,
-    toLng: to.lng,
+    toLat: b.lat,
+    toLng: b.lng,
     toLabel: to.label || toNode.building,
   };
 }

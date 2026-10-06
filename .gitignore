@@ -5,3 +5,4 @@ node_modules/
 android
 local.properties
 .env
+SESSION.md
