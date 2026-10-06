@@ -14,9 +14,24 @@ export function ArCloseButton({ onPress, top }) {
       onPress={onPress}
       hitSlop={8}
       accessibilityLabel="Close AR"
-      style={({ pressed }) => [styles.closeBtn, { top }, pressed && styles.closeBtnPressed]}
+      style={({ pressed }) => [styles.closeBtn, styles.closeBtnLeft, { top }, pressed && styles.closeBtnPressed]}
     >
       <Icon name="terminate" size={16} color={colors.textSecondary} />
+    </Pressable>
+  );
+}
+
+// The round recalibrate button, top right: drops the door and spawns a new
+// one ahead of the phone (for when AR tracking has drifted).
+export function ArRecalibrateButton({ onPress, top }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      hitSlop={8}
+      accessibilityLabel="Recalibrate: place a new portal"
+      style={({ pressed }) => [styles.closeBtn, styles.recalibrateBtn, { top }, pressed && styles.closeBtnPressed]}
+    >
+      <Icon name="recalibrate" size={16} color={colors.textSecondary} />
     </Pressable>
   );
 }
@@ -48,7 +63,6 @@ export function ArTitlePill({ children, top }) {
 const styles = StyleSheet.create({
   closeBtn: {
     position: "absolute",
-    left: spacing.lg,
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -58,6 +72,8 @@ const styles = StyleSheet.create({
     ...shadows.floating,
   },
   closeBtnPressed: { backgroundColor: colors.iconButton },
+  closeBtnLeft: { left: spacing.lg },
+  recalibrateBtn: { right: spacing.lg },
   pill: {
     position: "absolute",
     left: spacing.lg,
@@ -77,7 +93,8 @@ const styles = StyleSheet.create({
   titlePill: {
     position: "absolute",
     left: spacing.lg + 40 + spacing.sm,
-    right: spacing.lg,
+    // Leaves room for the recalibrate button on the right.
+    right: spacing.lg + 40 + spacing.sm,
     height: 40,
     justifyContent: "center",
     paddingHorizontal: spacing.lg,

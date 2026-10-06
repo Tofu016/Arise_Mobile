@@ -6,7 +6,7 @@ import Icon from "./Icon";
 import { buildingLabel, floorLabel } from "../utils/constants";
 import { colors, typography, radii, spacing } from "../theme";
 
-// The brand board's search sheet: a pill search field (back chevron, scan
+// The brand board's search sheet: a pill search field (back chevron, directions
 // icon on the right), then RECENT (with SEE ALL) and SUGGESTED ROOMS; while
 // typing, the matching rooms and places. Focusing the field expands the
 // sheet toward full height, as on the board's keyboard mock-up. It's only
@@ -26,7 +26,7 @@ export default function SearchSheet({
   query,
   onChangeQuery,
   onClose,
-  onScan,
+  onDirections,
   inputRef,
   recentRooms,
   onRemoveRecent,
@@ -77,8 +77,8 @@ export default function SearchSheet({
             returnKeyType="search"
             autoCorrect={false}
           />
-          <Pressable onPress={onScan} hitSlop={10} accessibilityLabel="Scan a placard">
-            <Icon name="scanCode" size={24} color={colors.textSecondary} />
+          <Pressable onPress={onDirections} hitSlop={10} accessibilityLabel="Directions">
+            <Icon name="directions" size={24} color={colors.textSecondary} />
           </Pressable>
         </View>
       </View>

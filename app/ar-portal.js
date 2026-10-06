@@ -1,222 +1,35 @@
-import { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import {
-  ViroARSceneNavigator,
-  ViroARScene,
-  ViroPortalScene,
-  ViroPortal,
-  Viro3DObject,
-  Viro360Image,
-  ViroAmbientLight,
-  ViroMaterials,
-  ViroAnimations,
-  ViroTrackingStateConstants,
-} from "@reactvision/react-viro";
+import { ViroARSceneNavigator } from "@reactvision/react-viro";
 import { usePlacardDialogs } from "../src/hooks/usePlacardDialogs";
 import { usePhotoFile } from "../src/hooks/usePhotoFile";
 import { colors, typography, spacing } from "../src/theme";
 import Button from "../src/components/Button";
-import { ArCloseButton, ArStatusPill, ArTitlePill } from "../src/components/ArChrome";
+import { ArCloseButton, ArRecalibrateButton, ArStatusPill, ArTitlePill } from "../src/components/ArChrome";
+import { JOYSTICK_SIZE } from "../src/components/ArJoystick";
+import ArPortalScene from "../src/components/ArPortalScene";
+import ArPortalControls, { useArPortalControls, PORTAL_TIP } from "../src/components/ArPortalControls";
 
-// ViroReact works in meters, not feet — 9 feet is roughly 2.7432 meters.
-// Increased from the original 5ft (1.524m) — confirmed working at this
-// distance on device.
-const PLACEMENT_DISTANCE_METERS = 2.7432;
-
-// The custom door-frame model came out of Blender at roughly 4.1 x 6.25 x
-// 4.05 units (width x height x depth) — quite large for a doorway. Scaling
-// to target a realistic ~2m height; width/depth scale proportionally with
-// it since it's a uniform scale, not a stretch.
-const DOOR_SCALE = 0.32;
-// How far below its resting position the door starts, in meters — the
-// "underground" starting point for the rise animation.
-const RISE_DISTANCE = 1.6;
-
-// Confirmed correct on a real device — the model's own tunnel direction
-// didn't map to the axis my earlier reasoning assumed; this was found by
-// direct trial rather than derived, which is why it doesn't match the
-// axis-swap math from the comments above.
-const DOOR_ROTATION = [0, -90, 0];
-
-// Precisely measured from the door model's own raw vertex data (not
-// estimated) — the actual inner opening between the two pillars and the
-// underside of the top bridge, deliberately excluding the base (per what
-// was asked: flush with the pillars and bridge, not the solid base). The
-// mask reaches all the way down to the ground rather than stopping at the
-// base's own inner ledge, since the opening naturally continues to the
-// floor. These are already in final world-space units (post DOOR_SCALE),
-// since the mask's own scale/position props apply directly, unlike the
-// door's which pass through DOOR_SCALE as an intermediate step.
-const MASK_SCALE = [1.197, 1.93, 1];
-
-// Confirmed correct on a real device — the missing piece was Z, not X;
-// the gap was toward/away from the viewer, not left/right.
-const MASK_POSITION_OFFSET = [0, 0, 0];
-
-const MASK_ROTATION = [0, 0, 0];
-
-ViroMaterials.createMaterials({
-  doorFrameMaterial: { diffuseColor: "#f2f1ec" }, // the model has no embedded material of its own
-  // Fully transparent — this is the actual "see-through" technique itself:
-  // a solid quad made invisible via zero-opacity material, rather than a
-  // model with a genuine geometric hole. Confirmed working on device.
-  portalMask: { diffuseColor: "rgba(255,255,255,0)" },
-});
-
-ViroAnimations.registerAnimations({
-  riseFromGround: {
-    // Relative, not absolute — "+=" rises by a fixed distance from
-    // whatever positionY the component actually started at, rather than
-    // animating to a hardcoded Y=0. This matters now that the door and
-    // mask have different final resting positions (mask's true opening
-    // isn't centered on the door's own origin) — a shared absolute target
-    // would be wrong for one of them; a shared relative distance is
-    // correct for both.
-    properties: { positionY: `+=${RISE_DISTANCE}` },
-    duration: 1200,
-    easing: "EaseOut", // starts fast, settles gently into its final position — reads as "coming to rest," not an abrupt stop
-  },
-});
-
-// The true immersive portal (ViroPortalScene + Viro360Image), plus a flat
-// preview layer visible from outside — see the flat-preview comment below
-// for why both exist together. The photo comes through a real file:// URI,
-// not a data: URI — see usePhotoFile.js for the reasoning specific
-// to Viro360Image.
+// A room's own 360 photo inside the AR door-frame portal: the room card's
+// 360° VIEW and the placard scanner both lead here. The door, its joystick
+// placement and stepping through are ArPortalScene's, the joystick / raise /
+// anchor buttons are ArPortalControls' (both shared with ar-viewer.js).
 //
-// Data-fetching lives INSIDE this component, not passed in as a photoUri
-// prop from the parent — ViroARSceneNavigator's initialScene captures its
-// factory function's output once, at first mount, and doesn't re-render it
-// when a parent's state later changes. photoUri starts null before the
-// async fetch resolves; passed as a prop, this scene got permanently frozen
-// with that initial null even after the real value arrived in the parent.
-// roomName itself is safe to pass as a prop — it's a static string for the
-// lifetime of this screen, not something that changes after mount.
-function ArScene({ roomName, onPlaced }) {
+// The photo path is looked up INSIDE the scene, not passed in as a prop:
+// ViroARSceneNavigator's initialScene captures its factory's output once, at
+// first mount, so a prop that arrives later (the room details load
+// asynchronously) would stay frozen at its first value. roomName itself is
+// safe as a prop: it's fixed for the lifetime of this screen.
+function ArScene({ roomName, sceneProps }) {
   const { getForRoom } = usePlacardDialogs();
   const placard = getForRoom(roomName);
-  const { uri: photoUri } = usePhotoFile(placard?.photo360);
-
-  const [placedPosition, setPlacedPosition] = useState(null);
-  // Tracks whether the rise animation has finished — once true, the door
-  // and mask switch to a plain static position with NO animation prop
-  // attached at all. A declarative animation={{run: true}} prop re-applies
-  // itself on every re-render (e.g. from the photo hooks' own state
-  // updates), which can re-trigger the rise from scratch even after it
-  // already finished once — removing the prop entirely, not just setting
-  // run: false, is what actually stops that from happening.
-  const [hasRisen, setHasRisen] = useState(false);
-  // Refs, not state — these gate the ONE-TIME placement decision without
-  // needing to re-render on every camera transform update (which fires
-  // continuously as the phone moves).
-  const isTrackingNormal = useRef(false);
-  const hasPlaced = useRef(false);
-
-  useEffect(() => {
-    if (!placedPosition || !photoUri || hasRisen) return;
-    // Matches the animation's own registered duration — once that much
-    // time has genuinely passed, the rise is done and it's safe to settle
-    // into a static position.
-    const timer = setTimeout(() => setHasRisen(true), 1200);
-    return () => clearTimeout(timer);
-  }, [placedPosition, photoUri, hasRisen]);
-
-  const handleTrackingUpdated = (state) => {
-    // Only trust the camera transform once AR has genuinely found stable
-    // tracking — the very first transform readings, before tracking
-    // stabilizes, can be unreliable.
-    if (state === ViroTrackingStateConstants.TRACKING_NORMAL) {
-      isTrackingNormal.current = true;
-    }
-  };
-
-  const handleCameraTransformUpdate = (cameraTransform) => {
-    if (!isTrackingNormal.current || hasPlaced.current) return;
-
-    const { position, forward } = cameraTransform;
-    // The actual placement math: a point straight ahead of wherever the
-    // camera currently is, at a fixed real-world distance — no hit-testing
-    // against a detected surface needed, no tap required.
-    const target = [
-      position[0] + forward[0] * PLACEMENT_DISTANCE_METERS,
-      position[1] + forward[1] * PLACEMENT_DISTANCE_METERS,
-      position[2] + forward[2] * PLACEMENT_DISTANCE_METERS,
-    ];
-    setPlacedPosition(target);
-    hasPlaced.current = true; // locks in — later transform updates are ignored
-    onPlaced?.(); // the screen drops its "hold your phone up" hint
-  };
-
-  return (
-    <ViroARScene
-      onTrackingUpdated={handleTrackingUpdated}
-      onCameraTransformUpdate={handleCameraTransformUpdate}
-    >
-      {/* Waits for BOTH tracking to be ready AND the real photo to have
-          finished loading — showing anything before the photo arrives
-          would either show nothing or briefly flash the wrong content. */}
-      {placedPosition && photoUri && (
-        <>
-          {/* Objects need lighting to be visible — the door model has no
-              embedded material of its own, unlike the old hand-written
-              frame which didn't need lighting since flat unlit shapes
-              don't require it the same way. */}
-          <ViroAmbientLight color="#ffffff" intensity={300} />
-
-          {/* The real immersive portal — takes over once you physically
-              walk through it. The door model itself rises out of the
-              ground into its resting position; the portal boundary/photo
-              content stay at their normal position throughout, since
-              they're not visible from outside anyway until you've walked
-              through. */}
-          <ViroPortalScene passable position={placedPosition}>
-            <ViroPortal>
-              {/* The invisible mask — this alone now provides the genuine
-                  see-through effect, so the earlier flat-preview workaround
-                  layer is gone entirely. Rotation confirmed matching the
-                  door's. Position offset is what's still being tuned —
-                  see MASK_POSITION_OFFSET above. Switches to a plain
-                  static resting position with no animation prop at all
-                  once hasRisen is true — settling permanently, immune to
-                  re-renders re-triggering the rise. Size precisely
-                  measured from the door model's real vertex data. */}
-              <Viro3DObject
-                type="OBJ"
-                source={require("../assets/models/portal-mask.obj")}
-                materials={["portalMask"]}
-                scale={MASK_SCALE}
-                rotation={MASK_ROTATION}
-                {...(hasRisen
-                  ? { position: MASK_POSITION_OFFSET }
-                  : {
-                      position: [
-                        MASK_POSITION_OFFSET[0],
-                        MASK_POSITION_OFFSET[1] - RISE_DISTANCE,
-                        MASK_POSITION_OFFSET[2],
-                      ],
-                      animation: { name: "riseFromGround", run: true },
-                    })}
-              />
-              <Viro3DObject
-                type="OBJ"
-                source={require("../assets/models/door-frame.obj")}
-                materials={["doorFrameMaterial"]}
-                scale={[DOOR_SCALE, DOOR_SCALE, DOOR_SCALE]}
-                rotation={DOOR_ROTATION}
-                {...(hasRisen
-                  ? { position: [0, 0, 0] }
-                  : { position: [0, -RISE_DISTANCE, 0], animation: { name: "riseFromGround", run: true } })}
-              />
-            </ViroPortal>
-            <Viro360Image source={{ uri: photoUri }} />
-          </ViroPortalScene>
-        </>
-      )}
-    </ViroARScene>
-  );
+  return <ArPortalScene photoPath={placard?.photo360} {...sceneProps} />;
 }
+
+// Space between the bottom of the screen (above the safe area) and the
+// joystick.
+const JOYSTICK_BOTTOM = 40;
 
 export default function ArPortalScreen() {
   const router = useRouter();
@@ -224,25 +37,24 @@ export default function ArPortalScreen() {
   const { roomName } = useLocalSearchParams();
   const { getForRoom } = usePlacardDialogs();
 
-  // The room's OWN 360° photo (photo360 field on placardDialogs, set via
-  // the dedicated "360° room photo" field in Room Edit on the web admin) —
-  // not the flat "Room photo" field, and not the node's photo. A node
-  // listed under "Rooms served" can easily be a hallway node with no photo
-  // of its own, or an irrelevant one; the room's own record is the
-  // unambiguous source for "what does the inside of this room look like."
+  // The room's OWN 360 photo (the first photo an admin marked 360 in the
+  // web's room photos), not the node's photo: a node listed under "Rooms
+  // served" can easily be a hallway with an unrelated photo.
   const placard = getForRoom(roomName);
-  // getForRoom starts returning null before its own Firestore data has
-  // loaded, same as before — this distinguishes "not loaded yet" from
-  // "genuinely has no photo set" so the UI doesn't sit on a spinner forever
-  // for a room an admin just hasn't added a photo to yet.
+  // getForRoom returns null until the details have loaded; this tells "not
+  // loaded yet" from "genuinely has no 360 photo", so the UI doesn't sit on a
+  // spinner forever.
   const placardHasNoPhoto = Boolean(placard && !placard.photo360);
   const { uri: photoUri, error: photoError } = usePhotoFile(placard?.photo360);
   // Until the door is placed (AR tracking has settled), a hint says what to do.
-  const [placed, setPlaced] = useState(false);
+  const controls = useArPortalControls();
+  const { placed } = controls;
 
-  // No room name at all — someone navigated here directly rather than
-  // through the scanner's real flow. Shown instead of silently rendering an
-  // empty AR scene with nothing to look at.
+  // Status lines at the bottom sit above the joystick once it's showing.
+  const statusBottom = insets.bottom + JOYSTICK_BOTTOM + (placed ? JOYSTICK_SIZE + spacing.lg : 0);
+
+  // No room name at all: someone navigated here directly rather than from
+  // the room card or the scanner. Said so, instead of an empty AR scene.
   if (!roomName) {
     return (
       <View style={styles.center}>
@@ -255,29 +67,37 @@ export default function ArPortalScreen() {
   return (
     <View style={styles.flex}>
       <ViroARSceneNavigator
-        initialScene={{ scene: () => <ArScene roomName={roomName} onPlaced={() => setPlaced(true)} /> }}
+        initialScene={{
+          scene: () => <ArScene roomName={roomName} sceneProps={controls.sceneProps} />,
+        }}
         style={styles.flex}
       />
 
       <ArCloseButton top={insets.top + 12} onPress={() => router.back()} />
       <ArTitlePill top={insets.top + 12}>{roomName}</ArTitlePill>
+      {placed && <ArRecalibrateButton top={insets.top + 12} onPress={controls.recalibrate} />}
+      {controls.tipVisible && <ArStatusPill key={controls.tipKey} style={{ top: insets.top + 64 }}>{PORTAL_TIP}</ArStatusPill>}
       {!placed && !photoError && !placardHasNoPhoto && (
         <ArStatusPill style={{ top: insets.top + 64 }}>Hold your phone up and move it slowly while AR gets ready.</ArStatusPill>
       )}
 
+      {/* Joystick, raise / lower and anchor, centred at the bottom: place the
+          door, anchor it, then walk through (or pull it onto yourself). */}
+      {placed && <ArPortalControls controls={controls} style={{ bottom: insets.bottom + JOYSTICK_BOTTOM }} />}
+
       {!photoUri && !photoError && !placardHasNoPhoto && (
-        <ArStatusPill tone="loading" style={{ bottom: insets.bottom + 40 }}>
+        <ArStatusPill tone="loading" style={{ bottom: statusBottom }}>
           Preparing the room's 360° view…
         </ArStatusPill>
       )}
       {photoError && (
-        <ArStatusPill tone="error" style={{ bottom: insets.bottom + 40 }}>
+        <ArStatusPill tone="error" style={{ bottom: statusBottom }}>
           {photoError}
         </ArStatusPill>
       )}
       {placardHasNoPhoto && !photoError && (
-        <ArStatusPill tone="error" style={{ bottom: insets.bottom + 40 }}>
-          This room doesn't have a 360° photo yet. An admin can add one in Room Edit.
+        <ArStatusPill tone="error" style={{ bottom: statusBottom }}>
+          This room doesn't have a 360° photo yet.
         </ArStatusPill>
       )}
     </View>
@@ -285,7 +105,7 @@ export default function ArPortalScreen() {
 }
 
 const styles = StyleSheet.create({
-  // Stays black — behind the live AR camera feed.
+  // Stays black, behind the live AR camera feed.
   flex: { flex: 1, backgroundColor: "#000" },
   center: {
     flex: 1,

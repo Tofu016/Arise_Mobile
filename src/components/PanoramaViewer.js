@@ -64,16 +64,20 @@ const PREVIEW_GAP_FRACTION = 0.5;
 // Hotspots are drawn this much bigger than web's size for the same screen,
 // so they're easy to hit with a thumb on a phone.
 const HOTSPOT_SIZE_BOOST = 1.75;
-// Gyro mode: sensor updates per second, and how much of each new reading
-// is taken (the rest is the previous one) to calm the sensor's jitter.
+// Gyro mode: how often to ask for a sensor reading. Android treats it as a
+// hint, so readings still arrive unevenly; CameraRig smooths per frame.
 const GYRO_INTERVAL_MS = 16;
-// Moving between spots (see "Moving between spots" in PanoramaViewer):
-const APPROACH_MS = 420; // step forward: turn toward the hotspot and zoom in
-const ARRIVE_MS = 650; // the new photo eases back out to normal
-const CROSSFADE_MS = 450; // the old photo dissolves over the new one
-const WALK_ZOOM_FOV = 45; // how far in the step forward zooms
-const JUMP_ZOOM_FOV = 62; // a jump or ride only settles in gently
-const GYRO_SMOOTHING = 0.35;
+// Moving between spots: the old photo dissolves over the new one this
+// fast, as web's FadingSphere (CROSSFADE_SECONDS 0.3).
+const CROSSFADE_MS = 300;
+// Gyro mode: the view closes about 63% of the gap to the phone's direction
+// every this many seconds. Measured in time, not per reading, so it feels
+// the same however bunched or late the sensor's readings arrive.
+const GYRO_SMOOTHING_S = 0.06;
+// Near straight up or down the phone's heading is noisy (yaw is an atan2 of
+// two near-zero numbers), so yaw is smoothed harder there, down to this
+// share of the normal rate.
+const GYRO_POLE_DAMPING_MIN = 0.25;
 // Zoom: how much of the way to the zoom level's FOV the lens eases each
 // frame (smooths the pinch without making it feel laggy).
 const ZOOM_EASE = 0.3;
@@ -98,51 +102,41 @@ function hotspotGeometry(highlighted) {
   return { dotRadius, ringArgs, previewY };
 }
 
-const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
-const easeOut = (t) => 1 - Math.pow(1 - t, 3);
 
 // Applies rotation every frame, imperatively, rather than through React
 // props/state — this is what makes the drag feel smooth rather than choppy,
 // since it's not waiting on a React re-render to pick up each new value.
-// Also plays the moving-between-spots animations, the same way:
-//   turnRef — { from, to: { yaw, pitch }, start, duration }: eases the view
-//             round (written into rotationRef, so a drag afterwards carries
-//             on from wherever it ended)
-//   lensRef — { from, to, start, duration, hold }: eases the field of view
-//             for a move; `hold` keeps it at `to` afterwards, until the
-//             next photo replaces it
-//   zoomRef — the visitor's pinch-zoom level: between moves the lens
-//             eases toward its FOV
-function CameraRig({ rotationRef, turnRef, lensRef, zoomRef }) {
+//   zoomRef — the visitor's pinch-zoom level: the lens eases toward its FOV
+//   gyroRef, gyroTargetRef, gyroOffsetRef: gyro mode. The sensor listener
+//             only stores its latest reading in gyroTargetRef; here
+//             gyroRef eases toward it each frame and the view is that plus
+//             the offset. Easing on frames rather than on sensor events is
+//             what keeps it smooth: readings cross the JS bridge unevenly,
+//             and writing them straight to the view held it still for a
+//             frame and then jumped.
+function CameraRig({ rotationRef, zoomRef, gyroRef, gyroTargetRef, gyroOffsetRef }) {
   const { camera } = useThree();
-  useFrame(() => {
-    const now = Date.now();
-    const turn = turnRef.current;
-    if (turn) {
-      const t = Math.min(1, (now - turn.start) / turn.duration);
-      const e = easeInOut(t);
+  useFrame((_, delta) => {
+    const gyro = gyroRef.current;
+    const target = gyroTargetRef.current;
+    if (gyro && target) {
+      // Capped so a long stall (app in the background) doesn't count as
+      // one huge step.
+      const k = 1 - Math.exp(-Math.min(delta, 0.1) / GYRO_SMOOTHING_S);
+      const poleDamping = Math.max(GYRO_POLE_DAMPING_MIN, Math.cos(THREE.MathUtils.degToRad(target.pitch)));
+      gyro.yaw += angleDelta(target.yaw, gyro.yaw) * k * poleDamping;
+      gyro.pitch += (target.pitch - gyro.pitch) * k;
+      const offset = gyroOffsetRef.current;
       rotationRef.current = {
-        yaw: turn.from.yaw + (turn.to.yaw - turn.from.yaw) * e,
-        pitch: turn.from.pitch + (turn.to.pitch - turn.from.pitch) * e,
+        yaw: gyro.yaw + offset.yaw,
+        pitch: Math.max(-89, Math.min(89, gyro.pitch + offset.pitch)),
       };
-      if (t >= 1) turnRef.current = null;
     }
-    const lens = lensRef.current;
-    if (lens) {
-      const t = Math.min(1, (now - lens.start) / lens.duration);
-      const fov = lens.from + (lens.to - lens.from) * (lens.easing === "out" ? easeOut(t) : easeInOut(t));
-      if (camera.fov !== fov) {
-        camera.fov = fov;
-        camera.updateProjectionMatrix();
-      }
-      if (t >= 1 && !lens.hold) lensRef.current = null;
-    } else {
-      const target = zoomedFov(FOV, zoomRef.current);
-      const diff = target - camera.fov;
-      if (diff !== 0) {
-        camera.fov = Math.abs(diff) < 0.01 ? target : camera.fov + diff * ZOOM_EASE;
-        camera.updateProjectionMatrix();
-      }
+    const fovTarget = zoomedFov(FOV, zoomRef.current);
+    const diff = fovTarget - camera.fov;
+    if (diff !== 0) {
+      camera.fov = Math.abs(diff) < 0.01 ? fovTarget : camera.fov + diff * ZOOM_EASE;
+      camera.updateProjectionMatrix();
     }
     // YXZ order (yaw around Y first, then pitch around X) is the standard
     // rotation order for a first-person-style look-around camera — avoids
@@ -483,6 +477,7 @@ export default function PanoramaViewer({
   // (so turning gyro on never jumps the view) and takes finger drags; pitch
   // is the phone's real tilt, plus any vertical drag.
   const gyroRef = useRef(null); // { yaw, pitch } smoothed, or null before the first reading
+  const gyroTargetRef = useRef(null); // the latest raw reading, which gyroRef eases toward
   const gyroOffsetRef = useRef({ yaw: 0, pitch: 0 });
   const startGyroOffsetRef = useRef({ yaw: 0, pitch: 0 });
   // Pinch zoom (1 = normal), kept in a ref like the rotation, so a pinch
@@ -506,22 +501,14 @@ export default function PanoramaViewer({
   const [facingIds, setFacingIds] = useState([]);
 
   // ---------- Moving between spots ----------
-  // The panorama on screen is the viewer's own (`shown`), not simply the
-  // `image` prop: when the node changes, the old photo stays up — no grey
-  // gap — while the new one loads, and a move plays out in three steps:
-  //   1. step forward (walks only): the view turns toward the hotspot you
-  //      walked through and zooms in, over APPROACH_MS;
-  //   2. the new photo is swapped in once it's loaded AND that step is done,
-  //      facing the arrival view;
-  //   3. arrive: the old photo dissolves over it (CROSSFADE_MS) while the
-  //      new one eases back out from zoomed-in (ARRIVE_MS).
-  // A jump or an elevator ride (no hotspot walked) skips step 1 and only
-  // settles in gently. Hotspots, markers and preview cards hide from the
-  // moment the node changes until the swap, so the new spot's arrows never
-  // float over the old photo. In gyro mode the phone steers the view, so
-  // step 1 only zooms.
-  const turnRef = useRef(null);
-  const lensRef = useRef(null);
+  // A fade, as on web: no turning or zooming. The panorama on screen is the
+  // viewer's own (`shown`), not simply the `image` prop: when the node
+  // changes, the old photo stays up (no grey gap) while the new one loads;
+  // once it has, the new photo is swapped in facing the arrival view and the
+  // old one dissolves over it (CROSSFADE_MS). Walks, jumps and elevator
+  // rides all move the same way. Hotspots, markers and preview cards hide
+  // from the moment the node changes until the swap, so the new spot's
+  // arrows never float over the old photo.
   const shownRef = useRef(null); // { image, texture, key } — key: the node it's of
   const [shown, setShown] = useState(null);
   const leavingRef = useRef(null); // texture fading out
@@ -530,100 +517,44 @@ export default function PanoramaViewer({
   // one. Worked out during render, so the new spot's arrows never get even
   // one frame over the old photo.
   const moving = !!shown && shown.key !== sceneKey;
-  const sceneKeyRef = useRef(sceneKey);
-  const shownHotspotsRef = useRef(hotspots); // the arrows of the photo on screen
-  const approachUntilRef = useRef(0);
-  const walkedRef = useRef(false);
   const entryRef = useRef({ entryYaw, entryPitch });
   entryRef.current = { entryYaw, entryPitch };
 
-  // 1. The node changed: start the step forward, if a hotspot was walked.
+  // A new photo is ready: swap it in, and fade the old one out over it.
   useEffect(() => {
-    if (sceneKeyRef.current === sceneKey) return;
-    sceneKeyRef.current = sceneKey;
-    if (!shownRef.current) return; // nothing on screen yet to move from
-    const walked = shownHotspotsRef.current.find((h) => h.id === sceneKey);
-    walkedRef.current = !!walked;
-    const now = Date.now();
-    if (walked) {
-      if (!gyroEnabled) {
-        const from = { ...rotationRef.current };
-        const toYaw = cameraYawFor(walked.yaw);
-        turnRef.current = {
-          from,
-          to: {
-            yaw: from.yaw + angleDelta(toYaw, from.yaw), // the short way round
-            pitch: Math.max(-25, Math.min(25, walked.pitch || 0)),
-          },
-          start: now,
-          duration: APPROACH_MS,
-        };
-      }
-      const fov = r3fStateRef.current?.camera.fov ?? FOV;
-      lensRef.current = { from: fov, to: WALK_ZOOM_FOV, start: now, duration: APPROACH_MS, hold: true };
-      approachUntilRef.current = now + APPROACH_MS;
-    } else {
-      approachUntilRef.current = now;
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sceneKey]);
-
-  // Remember the arrows of whatever photo is settled on screen, for step 1's
-  // "which hotspot was walked" on the next move. (Declared after step 1's
-  // effect, so that one still sees the previous photo's arrows.)
-  useEffect(() => {
-    if (!moving) shownHotspotsRef.current = hotspots;
-  }, [moving, hotspots]);
-
-  // 2 + 3. A new photo is ready: swap it in once the step forward is done.
-  useEffect(() => {
-    if (!image) return undefined;
-    if (shownRef.current?.image === image && shownRef.current.key === sceneKey) return undefined;
-    const swap = () => {
-      const current = shownRef.current;
-      // Another node with the very same photo: keep it, just re-label it.
-      const samePhoto = current?.image === image;
-      const previous = samePhoto ? null : current;
-      shownRef.current = {
-        image,
-        texture: samePhoto ? current.texture : makeTexture(image),
-        key: sceneKeyRef.current,
-      };
-      setShown(shownRef.current);
-
-      // Face the arrival view.
-      const { entryYaw: yaw, entryPitch: pitch } = entryRef.current;
-      turnRef.current = null;
-      rotationRef.current = { yaw: cameraYawFor(yaw), pitch };
-      // In gyro mode, re-aim it so the new panorama opens facing the same
-      // way (the phone's tilt stays the phone's).
-      if (gyroRef.current) gyroOffsetRef.current = { yaw: cameraYawFor(yaw) - gyroRef.current.yaw, pitch: 0 };
-
-      // Every spot opens at the normal zoom.
-      zoomRef.current = 1;
-      lensRef.current = null;
-
-      if (previous) {
-        leavingRef.current?.dispose(); // a fade still running from a quick earlier move
-        leavingRef.current = previous.texture;
-        setLeaving(previous.texture);
-        lensRef.current = {
-          from: walkedRef.current ? WALK_ZOOM_FOV : JUMP_ZOOM_FOV,
-          to: FOV,
-          start: Date.now(),
-          duration: ARRIVE_MS,
-          easing: "out",
-        };
-      }
-      walkedRef.current = false;
+    if (!image) return;
+    if (shownRef.current?.image === image && shownRef.current.key === sceneKey) return;
+    const current = shownRef.current;
+    // Another node with the very same photo: keep it, just re-label it.
+    const samePhoto = current?.image === image;
+    const previous = samePhoto ? null : current;
+    shownRef.current = {
+      image,
+      texture: samePhoto ? current.texture : makeTexture(image),
+      key: sceneKey,
     };
-    const wait = approachUntilRef.current - Date.now();
-    if (wait <= 0) {
-      swap();
-      return undefined;
+    setShown(shownRef.current);
+
+    // Face the arrival view.
+    const { entryYaw: yaw, entryPitch: pitch } = entryRef.current;
+    rotationRef.current = { yaw: cameraYawFor(yaw), pitch };
+    // In gyro mode, re-aim it so the new panorama opens facing the same
+    // way (the phone's tilt stays the phone's).
+    if (gyroRef.current) gyroOffsetRef.current = { yaw: cameraYawFor(yaw) - gyroRef.current.yaw, pitch: 0 };
+
+    // Every spot opens at the normal zoom, at once (no zoom animation).
+    zoomRef.current = 1;
+    const camera = r3fStateRef.current?.camera;
+    if (camera && camera.fov !== FOV) {
+      camera.fov = FOV;
+      camera.updateProjectionMatrix();
     }
-    const timer = setTimeout(swap, wait);
-    return () => clearTimeout(timer);
+
+    if (previous) {
+      leavingRef.current?.dispose(); // a fade still running from a quick earlier move
+      leavingRef.current = previous.texture;
+      setLeaving(previous.texture);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [image, sceneKey]);
 
@@ -678,30 +609,24 @@ export default function PanoramaViewer({
   useEffect(() => {
     if (!gyroEnabled || !DeviceMotion) return undefined;
     gyroRef.current = null;
+    gyroTargetRef.current = null;
     DeviceMotion.setUpdateInterval(GYRO_INTERVAL_MS);
+    // Only records the reading; CameraRig moves the view, once per frame.
     const subscription = DeviceMotion.addListener(({ rotation }) => {
       if (!rotation) return;
       const look = deviceLook(rotation);
       if (!Number.isFinite(look.yaw) || !Number.isFinite(look.pitch)) return;
-      const g = gyroRef.current;
-      if (!g) {
+      if (!gyroRef.current) {
         // First reading: keep facing exactly what's on screen now.
-        gyroRef.current = look;
+        gyroRef.current = { ...look };
         gyroOffsetRef.current = { yaw: rotationRef.current.yaw - look.yaw, pitch: 0 };
-      } else {
-        g.yaw += angleDelta(look.yaw, g.yaw) * GYRO_SMOOTHING;
-        g.pitch += (look.pitch - g.pitch) * GYRO_SMOOTHING;
       }
-      const cur = gyroRef.current;
-      const offset = gyroOffsetRef.current;
-      rotationRef.current = {
-        yaw: cur.yaw + offset.yaw,
-        pitch: Math.max(-89, Math.min(89, cur.pitch + offset.pitch)),
-      };
+      gyroTargetRef.current = look;
     });
     return () => {
       subscription.remove();
       gyroRef.current = null;
+      gyroTargetRef.current = null;
     };
   }, [gyroEnabled]);
 
@@ -840,7 +765,13 @@ export default function PanoramaViewer({
           reportMaxTextureSize(state.gl.capabilities.maxTextureSize);
         }}
       >
-        <CameraRig rotationRef={rotationRef} turnRef={turnRef} lensRef={lensRef} zoomRef={zoomRef} />
+        <CameraRig
+          rotationRef={rotationRef}
+          zoomRef={zoomRef}
+          gyroRef={gyroRef}
+          gyroTargetRef={gyroTargetRef}
+          gyroOffsetRef={gyroOffsetRef}
+        />
         {shown ? (
           <PanoramaSphere texture={shown.texture} />
         ) : (

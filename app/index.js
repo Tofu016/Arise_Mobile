@@ -11,9 +11,9 @@ import { allBuildings } from "../src/utils/constants";
 import { searchCampus, pickLocationSuggestions, findRoomForMarker } from "../src/utils/search";
 import * as route from "../src/utils/directionsRoute";
 import { elevatorDestinationsFrom, arrivalYawFromLanding } from "../src/utils/elevators";
-import { pickDefaultNode, walkEntryView, jumpEntryView, findFlyover } from "../src/utils/navigation";
+import { pickDefaultNode, pickFloorStart, walkEntryView, jumpEntryView, findFlyover } from "../src/utils/navigation";
 import { useRecentRooms, addRecentRoom, removeRecentRoom } from "../src/hooks/useRecentRooms";
-import { useSavedRooms, saveRoom, unsaveRoom, reloadSavedRooms } from "../src/hooks/useSavedRooms";
+import { useSavedRooms, saveRoom, unsaveRoom } from "../src/hooks/useSavedRooms";
 import MobileRoomSheet from "../src/components/MobileRoomSheet";
 import MobileDirectionsSheet from "../src/components/MobileDirectionsSheet";
 import ElevatorPicker from "../src/components/ElevatorPicker";
@@ -22,10 +22,11 @@ import PanoramaViewer from "../src/components/PanoramaViewer";
 import SearchSheet from "../src/components/SearchSheet";
 import DirectorySheet from "../src/components/DirectorySheet";
 import AboutSheet from "../src/components/AboutSheet";
-import SavedSheet from "../src/components/SavedSheet";
+import BuildingSheet from "../src/components/BuildingSheet";
 import ToastHost, { showToast } from "../src/components/Toast";
 import BottomNav, { NAV_HEIGHT } from "../src/components/BottomNav";
 import TopLogo from "../src/components/TopLogo";
+import LoadingSpinner from "../src/components/LoadingSpinner";
 import Icon, { COLOR_ICONS } from "../src/components/Icon";
 import { useAnalytics } from "../src/hooks/useAnalytics";
 import { isGyroAvailable } from "../src/utils/deviceLook";
@@ -50,7 +51,7 @@ export default function MainScreen() {
   const insets = useSafeAreaInsets();
 
   // Only one sheet at a time, same as the web app's panelMode:
-  //   null | "search" | "directory" | "room" | "directions" | "saved" | "about"
+  //   null | "search" | "directory" | "room" | "directions" | "building" | "about"
   const [panelMode, setPanelMode] = useState(null);
   // The bottom-nav tab that opened what's showing, so it stays lit while a
   // room card or directions opened from it are up.
@@ -441,10 +442,17 @@ export default function MainScreen() {
     openDirectionsTo(selectedRoomCard.node);
     setSelectedRoomCard(null);
   };
-  const handleRoomView360 = () => {
+  const handleRoomGoTo = () => {
     if (!selectedRoomCard) return;
     jumpToDestination(selectedRoomCard.node.id);
     setSelectedRoomCard(null);
+  };
+
+  // The room's own 360 photo, inside the AR portal. The card stays open
+  // underneath, so closing the portal comes back to it.
+  const handleRoomView360 = () => {
+    if (!selectedRoomCard) return;
+    router.push({ pathname: "/ar-portal", params: { roomName: selectedRoomCard.roomName } });
   };
 
   // ---------- Auto walk ----------
@@ -535,17 +543,23 @@ export default function MainScreen() {
       .catch((err) => showToast(err.message));
   };
 
-  const handleTab = (tab) => {
-    if (tab === "directions") {
-      if (panelMode === "directions") {
-        closePanel(); // the route is kept; the tab brings it back
-        return;
-      }
-      setActiveTab("directions");
-      openDirectionsPanel();
+  // The Building sheet's picks (an entrance, or a floor's starting node):
+  // a jump, as on web. Already standing there just closes the sheet.
+  const pickBuildingNode = (id) => {
+    if (!id || id === currentId) {
+      closePanel();
       return;
     }
-    const panelFor = { location: "directory", search: "search", save: "saved", about: "about" }[tab];
+    jumpToDestination(id);
+  };
+
+  const handleTab = (tab) => {
+    if (tab === "scan") {
+      closePanel();
+      router.push("/placard-scanner");
+      return;
+    }
+    const panelFor = { location: "directory", search: "search", building: "building", about: "about" }[tab];
     if (panelMode === panelFor) {
       closePanel();
       return;
@@ -569,7 +583,7 @@ export default function MainScreen() {
         {loadError ? (
           <Text style={styles.panoramaErrorText}>{loadError}</Text>
         ) : !nodes ? (
-          <Text style={styles.panoramaPlaceholderText}>Loading campus…</Text>
+          <LoadingSpinner label="Loading campus" />
         ) : current ? (
           <View style={styles.panoramaViewerWrap}>
             <PanoramaViewer
@@ -590,8 +604,8 @@ export default function MainScreen() {
               entryPitch={entryView.pitch}
             />
             {current.photo && !panorama && !photoError && (
-              <View style={styles.panoramaStatus} pointerEvents="none">
-                <Text style={styles.panoramaPlaceholderText}>Loading photo…</Text>
+              <View style={styles.panoramaSpinner} pointerEvents="none">
+                <LoadingSpinner label="Loading photo" />
               </View>
             )}
             {photoError && (
@@ -614,7 +628,7 @@ export default function MainScreen() {
 
       {/* ---------- Bottom-right, above the nav: the gyro look-around
           toggle in the corner, the AR view button stacked above it (centred
-          over it). The placard scanner lives in the search sheet. Hidden
+          over it). The placard scanner is the bottom nav's scan button. Hidden
           while a sheet is up. ---------- */}
       {!panelMode && (
         <Animated.View
@@ -670,10 +684,7 @@ export default function MainScreen() {
           query={searchQuery}
           onChangeQuery={setSearchQuery}
           onClose={closePanel}
-          onScan={() => {
-            closePanel();
-            router.push("/placard-scanner");
-          }}
+          onDirections={openDirectionsPanel}
           inputRef={searchInputRef}
           recentRooms={recentRooms}
           onRemoveRecent={removeRecentRoom}
@@ -692,6 +703,10 @@ export default function MainScreen() {
         <DirectorySheet
           searchableRooms={searchableRooms}
           currentNode={current}
+          saved={savedRooms.saved}
+          savedLimit={savedRooms.limit}
+          savedReady={savedRooms.status === "ready"}
+          onRemoveSaved={removeSavedRoom}
           onPickRoom={openRoomCard}
           onClose={closePanel}
           bottomOffset={sheetBottom}
@@ -699,15 +714,12 @@ export default function MainScreen() {
         />
       )}
 
-      {panelMode === "saved" && (
-        <SavedSheet
-          saved={savedRooms.saved}
-          limit={savedRooms.limit}
-          status={savedRooms.status}
-          searchableRooms={searchableRooms}
-          onPickRoom={openRoomCard}
-          onRemove={removeSavedRoom}
-          onRetry={reloadSavedRooms}
+      {panelMode === "building" && (
+        <BuildingSheet
+          nodes={nodes}
+          currentNode={current}
+          onPickNode={pickBuildingNode}
+          onPickFloor={(buildingId, floor) => pickBuildingNode(pickFloorStart(nodes, buildingId, floor)?.id)}
           onClose={closePanel}
           bottomOffset={sheetBottom}
           topLimit={sheetTop}
@@ -729,6 +741,7 @@ export default function MainScreen() {
           saved={selectedRoomSaved}
           onToggleSave={() => toggleSaveRoom(selectedRoomCard)}
           onClose={closeRoomCard}
+          onGoTo={handleRoomGoTo}
           onGetDirections={handleRoomGetDirections}
           onView360={handleRoomView360}
           bottomOffset={sheetBottom}
@@ -770,7 +783,7 @@ export default function MainScreen() {
       )}
 
       {/* ---------- The bottom nav: every menu, one floating pill ---------- */}
-      <BottomNav active={panelMode === "directions" ? "directions" : panelMode ? activeTab : null} onPress={handleTab} bottom={navBottom} />
+      <BottomNav active={panelMode && panelMode !== "directions" ? activeTab : null} onPress={handleTab} bottom={navBottom} />
 
       {elevatorPicker && (
         <ElevatorPicker
@@ -811,6 +824,8 @@ const styles = StyleSheet.create({
   panoramaErrorText: { ...typography.bodySmall, color: colors.danger, textAlign: "center", paddingHorizontal: spacing.xxl },
   panoramaViewerWrap: { flex: 1, width: "100%" },
   panoramaStatus: { position: "absolute", top: 130, left: 0, right: 0, alignItems: "center" },
+  // The photo's loading spinner, in the middle of the screen.
+  panoramaSpinner: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
 
   // A soft white plate keeps the logo legible over any panorama.
   logoWrap: {

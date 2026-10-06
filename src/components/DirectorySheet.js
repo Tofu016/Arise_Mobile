@@ -7,6 +7,7 @@ import { allBuildings, floorLabel } from "../utils/constants";
 import { campusOf } from "../utils/buildingStore";
 import { listedRooms } from "../utils/directorySettings";
 import { useDirectorySettings } from "../hooks/useDirectorySettings";
+import { roomSubtitle } from "./SearchSheet";
 import { colors, typography, radii, spacing } from "../theme";
 
 // The brand board's DIRECTORY sheet (the Location tab): every building as
@@ -23,6 +24,14 @@ import { colors, typography, radii, spacing } from "../theme";
 // "You are here": the building you're standing in gets a red badge and
 // starts open, and your floor's heading gets a pin.
 //
+// SAVED DIRECTORIES, as on web (DirectoryAccordion.jsx): the rooms
+// bookmarked on this phone (see useSavedRooms), newest first, as a group
+// above the buildings, collapsed to start, and only while at least one is
+// saved and the admin's Directory settings show it (`showSaved`). Tap to
+// open the room's card, x to remove (with UNDO, from the caller). A saved
+// room the tour no longer lists (its details still exist, but no spot
+// serves it) stays, greyed, rather than silently disappearing.
+//
 // The sheet is only ever as tall as its content (no empty space below the
 // building list).
 
@@ -38,6 +47,10 @@ const PEEK_HEIGHT = 96;
 export default function DirectorySheet({
   searchableRooms,
   currentNode,
+  saved = [],
+  savedLimit,
+  savedReady = false,
+  onRemoveSaved,
   onPickRoom,
   onClose,
   bottomOffset,
@@ -52,6 +65,19 @@ export default function DirectorySheet({
   const contentHeight = titleHeight && listHeight ? titleHeight + listHeight : undefined;
 
   const settings = useDirectorySettings();
+  const [savedOpen, setSavedOpen] = useState(false);
+
+  // Each saved entry with the room as the tour knows it now (null if it's
+  // no longer listed anywhere).
+  const savedRows = useMemo(
+    () =>
+      saved.map((entry) => ({
+        entry,
+        room: searchableRooms.find((r) => Number(r.placard?.id) === entry.placard_dialog_id) || null,
+      })),
+    [saved, searchableRooms]
+  );
+  const showSaved = settings.showSaved && savedReady && saved.length > 0;
 
   const sections = useMemo(
     () =>
@@ -96,6 +122,43 @@ export default function DirectorySheet({
         contentContainerStyle={styles.scrollContent}
         onContentSizeChange={(_, h) => setListHeight(h)}
       >
+        {showSaved && (
+          <View>
+            <Pressable
+              style={styles.buildingRow}
+              onPress={() => setSavedOpen((v) => !v)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: savedOpen }}
+              accessibilityLabel="Saved Directories"
+            >
+              <View style={styles.buildingName}>
+                <Icon name="save" size={13} color={savedOpen ? colors.primary : colors.textSecondary} />
+                <Text style={[styles.buildingText, savedOpen && styles.buildingTextOpen]}>Saved Directories</Text>
+                {!!savedLimit && (
+                  <Text style={styles.savedCount}>
+                    {saved.length} / {savedLimit}
+                  </Text>
+                )}
+              </View>
+              <Icon name={savedOpen ? "collapse" : "expand"} size={14} color={savedOpen ? colors.primary : colors.textSecondary} />
+            </Pressable>
+            {savedOpen &&
+              savedRows.map(({ entry, room }) => (
+                <ListRow
+                  key={entry.placard_dialog_id}
+                  title={room?.roomName ?? entry.room_name}
+                  subtitle={room ? roomSubtitle(room) : "No longer in the tour"}
+                  onPress={room ? () => onPickRoom(room) : undefined}
+                  dimmed={!room}
+                  indent={spacing.md}
+                  trailing="remove"
+                  trailingLabel={`Remove ${room?.roomName ?? entry.room_name} from saved`}
+                  onTrailingPress={() => onRemoveSaved(entry, room)}
+                />
+              ))}
+          </View>
+        )}
+
         {sections.map((section) => {
           const open = openId === section.id;
           const here = section.id === hereBuilding;
@@ -171,6 +234,7 @@ const styles = StyleSheet.create({
   buildingName: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flexShrink: 1 },
   buildingText: { ...typography.eyebrow, color: colors.textSecondary, flexShrink: 1 },
   buildingTextOpen: { color: colors.primary },
+  savedCount: { ...typography.sublabel, fontSize: 10 },
   hereBadge: {
     flexDirection: "row",
     alignItems: "center",

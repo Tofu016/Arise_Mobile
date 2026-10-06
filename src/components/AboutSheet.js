@@ -49,7 +49,7 @@ export default function AboutSheet({ onClose, onFeedbackSubmitted, bottomOffset,
           {feedbackOpen ? (
             <FeedbackForm onSubmitted={onFeedbackSubmitted} onCancel={() => setFeedbackOpen(false)} />
           ) : (
-            <Button label="Send" variant="outline" icon="star" onPress={() => setFeedbackOpen(true)} />
+            <Button label="Send Feedback" variant="outline" icon="star" onPress={() => setFeedbackOpen(true)} />
           )}
         </View>
 

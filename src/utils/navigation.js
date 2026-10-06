@@ -58,6 +58,42 @@ export function pickBuildingStart(nodes, buildingId) {
   return pickDefaultEntranceForBuilding(nodes, buildingId) || nodes.find((n) => n.building === buildingId) || null;
 }
 
+// Every floor with at least one node in a building, low to high: the
+// Building sheet's floor buttons (web: the Compact layout's Building dialog).
+export function floorsForBuilding(nodes, buildingId) {
+  if (!nodes) return [];
+  return [...new Set(nodes.filter((n) => n.building === buildingId).map((n) => Number(n.floor)))].sort(
+    (a, b) => a - b
+  );
+}
+
+// A building's entrance shortcuts: whichever node an admin flagged as that
+// building's own Building entrance, and whichever node is the Campus
+// entrance for the campus it belongs to (which may be a different
+// GD1/GD2/GD3 building, see campusForBuilding). When both are the very same
+// node, it's offered once, as the campus entrance (the broader label covers
+// the narrower one). `campusForBuilding` is buildingStore's campusOf.
+export function findKioskEntranceShortcuts(nodes, buildingId, campusForBuilding) {
+  if (!nodes || !buildingId) return [];
+  const buildingEntrance = nodes.find((n) => n.building === buildingId && n.buildingEntrance);
+  const campusEntrance = nodes.find(
+    (n) => n.campusEntrance && campusForBuilding(n.building) === campusForBuilding(buildingId)
+  );
+  if (buildingEntrance && campusEntrance && buildingEntrance.id === campusEntrance.id) {
+    return [{ key: "campus", label: "Campus Entrance", nodeId: campusEntrance.id }];
+  }
+  const shortcuts = [];
+  if (buildingEntrance) shortcuts.push({ key: "building", label: "Building Entrance", nodeId: buildingEntrance.id });
+  if (campusEntrance) shortcuts.push({ key: "campus", label: "Campus Entrance", nodeId: campusEntrance.id });
+  return shortcuts;
+}
+
+// The one node an admin flagged as the shared entrance for the whole Main
+// Campus cluster: the Building sheet's top shortcut.
+export function findMainCampusEntrance(nodes, campusForBuilding) {
+  return (nodes || []).find((n) => n.campusEntrance && campusForBuilding(n.building) === "main") || null;
+}
+
 // The view to open facing after walking along a hotspot link: keep facing
 // the way you were walking.
 //

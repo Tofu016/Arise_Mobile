@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView, Image, Linking } from "react-native";
+import { View, Text, Pressable, StyleSheet, ScrollView, Image, Linking, ActivityIndicator } from "react-native";
 import { buildingLabel, floorLabel } from "../utils/constants";
 import { photoUrl } from "../api/client";
 import { colors, typography, radii, spacing } from "../theme";
@@ -8,9 +8,16 @@ import Button from "./Button";
 import Icon from "./Icon";
 
 // The brand board's room card: title with round save/close buttons, a grey
-// location row, DIRECTIONS / 360° VIEW pills, a collapsible description,
-// and a photo carousel. Swipe up to expand, down to close. Reopening it for
-// a different room springs it back to its opening height (resetKey).
+// location row, GO TO / DIRECTIONS pills (GO TO with web's pin icon, which
+// is the board's location icon), a 360° VIEW pill under them, a collapsible
+// description, and a photo carousel. Swipe up to expand, down to close.
+// Reopening it for a different room springs it back to its opening height
+// (resetKey).
+//
+// GO TO jumps to the room's node, as web's does. 360° VIEW is mobile's
+// stand-in for web's 360 photo in the carousel: it opens the AR portal
+// (app/ar-portal.js) with the room's 360 photo inside, so it only shows
+// when the room has one.
 //
 // The bookmark saves the room on this phone (see useSavedRooms): grey
 // when not saved, red when it is. Saving is keyed on the room's details
@@ -19,7 +26,7 @@ import Icon from "./Icon";
 // The room's link and contact number, when an admin set them, are tappable
 // rows: the link opens in the browser, the number in the phone's dialer.
 // The carousel shows every flat photo in the order an admin sorted them;
-// 360 photos are left out, since 360° VIEW already covers the panorama.
+// 360 photos are left out, since 360° VIEW shows them in the AR portal.
 // A room with no details at all says "No information.", as on web.
 
 // Admins may type a URL without a protocol ("example.com"), so one is added
@@ -52,7 +59,11 @@ function RoomPhoto({ photo }) {
       />
       {status !== "loaded" && (
         <View style={[StyleSheet.absoluteFill, styles.photoLoading]}>
-          <Text style={styles.photoLoadingText}>{status === "error" ? "Couldn't load photo" : "Loading photo…"}</Text>
+          {status === "error" ? (
+            <Text style={styles.photoLoadingText}>Couldn't load photo</Text>
+          ) : (
+            <ActivityIndicator size="large" color={colors.primary} accessibilityLabel="Loading photo" />
+          )}
         </View>
       )}
     </View>
@@ -87,6 +98,7 @@ export default function MobileRoomSheet({
   saved = false,
   onToggleSave,
   onClose,
+  onGoTo,
   onGetDirections,
   onView360,
   bottomOffset,
@@ -95,6 +107,7 @@ export default function MobileRoomSheet({
   const { roomName, node, placard } = room;
   const [expanded, setExpanded] = useState(false);
   const photos = (placard?.photos || []).filter((p) => p.kind === "flat").map((p) => p.path);
+  const has360 = !!placard?.photo360;
   const about = [placard?.department, placard?.roomDescription].filter(Boolean).join(", ");
   const link = placard?.link || "";
   const contactNumber = placard?.contactNumber || "";
@@ -167,9 +180,14 @@ export default function MobileRoomSheet({
         )}
 
         <View style={styles.actionsRow}>
+          <Button label="Go To" icon="location" variant="outline" onPress={onGoTo} size="sm" style={styles.actionBtn} />
           <Button label="Directions" icon="directions" onPress={onGetDirections} size="sm" style={styles.actionBtn} />
-          <Button label="360° View" variant="neutral" onPress={onView360} size="sm" style={styles.actionBtn} />
         </View>
+        {has360 && (
+          <View style={styles.actionsRow}>
+            <Button label="360° View" variant="neutral" onPress={onView360} size="sm" style={styles.actionBtn} />
+          </View>
+        )}
 
         {!hasInfo && <Text style={styles.noInfo}>No information.</Text>}
 

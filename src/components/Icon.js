@@ -37,6 +37,9 @@ const ICONS = {
   // Not the board's link-chain: Phosphor "link-simple" (MIT), the one the
   // web app's room card uses, picked over the chain glyph there.
   link: { image: require("../../assets/icons/link.png") },
+  // The board's building, from web's copy (whose windows are cut out, so
+  // tinting shows them); the Building tab.
+  building: { image: require("../../assets/icons/building.png") },
   // Not in the board's set: the About tab, its feedback form (stars, the
   // "sent" check), FormField's show/hide password, and the development
   // build's server setting.
@@ -47,6 +50,12 @@ const ICONS = {
   showPassword: { font: [FontAwesome6, "eye"] },
   hidePassword: { font: [FontAwesome6, "eye-slash"] },
   server: { font: [FontAwesome6, "server"] },
+  // Also not in the board's set: the AR portal's raise / lower / anchor
+  // buttons (ArPortalControls). Placeholders until the designer draws them.
+  portalUp: { font: [FontAwesome6, "chevron-up"] },
+  portalDown: { font: [FontAwesome6, "chevron-down"] },
+  anchor: { font: [FontAwesome6, "anchor"] },
+  recalibrate: { font: [FontAwesome6, "arrows-rotate"] },
 };
 
 // The gyro toggle's two images, shown as-is (not tinted): compass inside

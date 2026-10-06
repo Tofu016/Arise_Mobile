@@ -1,22 +1,33 @@
 import { useMemo, useRef } from "react";
-import { View, Image, Animated, PanResponder, StyleSheet } from "react-native";
+import { View, Animated, PanResponder, StyleSheet } from "react-native";
+import Icon from "./Icon";
+import { colors, shadows } from "../theme";
 
-// The AR screen's joystick: the gyro toggle's artwork taken apart — the
-// four chevrons are the base, the compass is the knob you push. An analog
-// stick: while it's held it reports how far and which way it's pushed, and
-// { x: 0, y: 0 } when it's let go (the knob springs back).
+// The AR screens' joystick, drawn as a game thumbstick: a dark see-through
+// ring with a chevron at each of the four directions, and a raised white
+// knob you push. An analog stick: while it's held it reports how far and
+// which way it's pushed, and { x: 0, y: 0 } when it's let go (the knob
+// springs back).
 //
 //   <ArJoystick onMove={({ x, y }) => …} />
 //
 // x: -1 (left) … 1 (right); y: -1 (down) … 1 (up). Written for a ref, not
 // state: it fires on every finger movement.
-const BASE = require("../../assets/icons/color/joystick-base.png");
-const KNOB = require("../../assets/icons/color/joystick-knob.png");
-const SIZE = 132; // the base, dp (the artwork is 240px: chevrons to the edge)
+const SIZE = 132; // the base, dp
 export const JOYSTICK_SIZE = SIZE;
-const KNOB_SIZE = (SIZE * 108) / 240; // the compass, at the same scale
+const KNOB_SIZE = 60;
+const CHEVRON_SIZE = 14;
+const CHEVRON_INSET = 10; // from the base's edge
 const TRAVEL = 26; // how far the knob moves (stops short of the chevrons) = full push
 const DEAD_ZONE = 0.12; // a push under this share of TRAVEL counts as none
+
+// Icon names for the chevron, each already turned to point its way.
+const CHEVRONS = [
+  { icon: "collapse", place: { top: CHEVRON_INSET, alignSelf: "center" } }, // up
+  { icon: "expand", place: { bottom: CHEVRON_INSET, alignSelf: "center" } }, // down
+  { icon: "proceedBack", place: { left: CHEVRON_INSET } },
+  { icon: "proceedNext", place: { right: CHEVRON_INSET } },
+];
 
 export default function ArJoystick({ onMove, style }) {
   const knob = useRef(new Animated.ValueXY()).current;
@@ -59,14 +70,49 @@ export default function ArJoystick({ onMove, style }) {
       accessibilityRole="adjustable"
       accessibilityLabel="Joystick: push to move through the space"
     >
-      <Image source={BASE} style={styles.base} resizeMode="contain" />
-      <Animated.Image source={KNOB} resizeMode="contain" style={[styles.knob, { transform: knob.getTranslateTransform() }]} />
+      <View style={styles.base} pointerEvents="none">
+        {CHEVRONS.map(({ icon, place }) => (
+          <View key={icon} style={[styles.chevron, place]}>
+            <Icon name={icon} size={CHEVRON_SIZE} color={colors.textOnDark} />
+          </View>
+        ))}
+      </View>
+      <Animated.View style={[styles.knob, { transform: knob.getTranslateTransform() }]} pointerEvents="none">
+        <View style={styles.knobGrip} />
+      </Animated.View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   pad: { position: "absolute", width: SIZE, height: SIZE, alignItems: "center", justifyContent: "center" },
-  base: { position: "absolute", width: SIZE, height: SIZE },
-  knob: { width: KNOB_SIZE, height: KNOB_SIZE },
+  base: {
+    position: "absolute",
+    width: SIZE,
+    height: SIZE,
+    borderRadius: SIZE / 2,
+    borderWidth: 2,
+    borderColor: colors.overlaySurface,
+    backgroundColor: colors.scrim,
+    justifyContent: "center",
+  },
+  chevron: { position: "absolute" },
+  knob: {
+    width: KNOB_SIZE,
+    height: KNOB_SIZE,
+    borderRadius: KNOB_SIZE / 2,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.overlaySurface,
+    ...shadows.floating,
+  },
+  // The thumb's dip in the top of the stick.
+  knobGrip: {
+    width: KNOB_SIZE * 0.62,
+    height: KNOB_SIZE * 0.62,
+    borderRadius: KNOB_SIZE * 0.31,
+    backgroundColor: colors.surfaceSunken,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
 });

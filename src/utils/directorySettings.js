@@ -10,8 +10,8 @@
 // created later appear on their own. A building with no entry behaves as
 // incoming on with nothing removed.
 //
-// `showSaved` is read but not used here: it hides web's "Saved Directories"
-// group inside its directory, and the app keeps saved rooms in their own tab.
+// `showSaved` hides the "Saved Directories" group in the directory, as on
+// web (see DirectorySheet).
 export const DEFAULT_DIRECTORY_SETTINGS = {
   showSaved: true,
   hiddenCampuses: [],

@@ -10,9 +10,9 @@ import { colors, radii, spacing, shadows } from "../theme";
 //   <BottomNav active="search" onPress={(tab) => …} bottom={insets.bottom + 12} />
 export const NAV_TABS = [
   { id: "location", icon: "location", label: "Directory" },
-  { id: "directions", icon: "directions", label: "Directions" },
+  { id: "scan", icon: "scanCode", label: "Scan a placard" },
   { id: "search", icon: "search", label: "Search" },
-  { id: "save", icon: "save", label: "Saved" },
+  { id: "building", icon: "building", label: "Choose a building" },
   { id: "about", icon: "about", label: "About" },
 ];
 

@@ -124,7 +124,7 @@ export default function FeedbackForm({ onSubmitted, onCancel }) {
       )}
 
       <View style={styles.buttons}>
-        <Button label={sending ? "Sending…" : "Send feedback"} onPress={submit} loading={sending} style={styles.button} />
+        <Button label={sending ? "Sending…" : "Send"} onPress={submit} loading={sending} style={styles.button} />
         {onCancel && <Button label="Cancel" variant="outline" onPress={onCancel} disabled={sending} style={styles.button} />}
       </View>
     </View>

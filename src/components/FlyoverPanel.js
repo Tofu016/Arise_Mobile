@@ -78,6 +78,13 @@ function useTileFiles(tiles) {
 }
 const ROUTE_COLOR = "#4a9eff"; // web's route line
 const ROUTE_WIDTH = 4;
+const PIN = 30;
+// Each pin carries a label pill above its head, as on web ("You are here",
+// "Destination point"). This much extra room (px) is kept above the pins
+// when framing the map, so a label near the top isn't cut off.
+const LABEL_SPACE = 26;
+const LABEL_GAP = 2; // between the pin's head and its label
+const LABEL_EDGE = 4; // a label never sits closer than this to the map's edge
 
 // Web Mercator: (lat, lng) -> pixel position in the whole world map at zoom z.
 function project(lat, lng, z) {
@@ -86,14 +93,38 @@ function project(lat, lng, z) {
   return [((lng + 180) / 360) * scale, (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * scale];
 }
 
-// The closest zoom that still fits both points inside the padding.
+// The closest zoom that still fits both points inside the padding (with
+// LABEL_SPACE more on top, for the pins' labels).
 function fitZoom(from, to, width, height) {
   for (let z = MAX_ZOOM; z > 1; z--) {
     const [x1, y1] = project(from.lat, from.lng, z);
     const [x2, y2] = project(to.lat, to.lng, z);
-    if (Math.abs(x2 - x1) <= width - 2 * FIT_PADDING && Math.abs(y2 - y1) <= height - 2 * FIT_PADDING) return z;
+    if (
+      Math.abs(x2 - x1) <= width - 2 * FIT_PADDING &&
+      Math.abs(y2 - y1) <= height - 2 * FIT_PADDING - LABEL_SPACE
+    )
+      return z;
   }
   return 1;
+}
+
+// A pin's label pill, centred over the pin's head, nudged back inside the
+// map if it would run off a side. Measured, since the text sets its width.
+function PinLabel({ x, pinTop, mapWidth, destination, children }) {
+  const [size, setSize] = useState(null);
+  const left = size ? Math.min(Math.max(LABEL_EDGE, x - size.width / 2), mapWidth - size.width - LABEL_EDGE) : x;
+  const top = size ? Math.max(LABEL_EDGE, pinTop - LABEL_GAP - size.height) : pinTop;
+  return (
+    <View
+      pointerEvents="none"
+      onLayout={(e) => !size && setSize(e.nativeEvent.layout)}
+      style={[styles.pinLabel, destination && styles.pinLabelDestination, { left, top, opacity: size ? 1 : 0 }]}
+    >
+      <Text style={styles.pinLabelText} numberOfLines={1}>
+        {children}
+      </Text>
+    </View>
+  );
 }
 
 // The road route as [lng, lat] points (OSRM's GeoJSON order), falling back
@@ -127,7 +158,8 @@ function StaticMap({ from, to, route, width, height }) {
     const [fx, fy] = project(from.lat, from.lng, z);
     const [tx, ty] = project(to.lat, to.lng, z);
     const left = (fx + tx) / 2 - width / 2;
-    const top = (fy + ty) / 2 - height / 2;
+    // Centred lower by half the label room, so it all goes above the pins.
+    const top = (fy + ty) / 2 - height / 2 - LABEL_SPACE / 2;
     const toScreen = (lat, lng) => {
       const [x, y] = project(lat, lng, z);
       return [x - left, y - top];
@@ -184,7 +216,6 @@ function StaticMap({ from, to, route, width, height }) {
   const fileFor = useTileFiles(view.tiles);
   const [fromX, fromY] = view.toScreen(from.lat, from.lng);
   const [toX, toY] = view.toScreen(to.lat, to.lng);
-  const PIN = 30;
 
   return (
     <View style={[styles.map, { width, height }]}>
@@ -215,6 +246,13 @@ function StaticMap({ from, to, route, width, height }) {
       <View style={[styles.pin, { left: toX - PIN / 2, top: toY - PIN }]}>
         <Icon name="location" size={PIN} color={colors.primary} />
       </View>
+      {/* Labels after both pins, so neither pin covers the other's label. */}
+      <PinLabel x={fromX} pinTop={fromY - PIN} mapWidth={width}>
+        You are here
+      </PinLabel>
+      <PinLabel x={toX} pinTop={toY - PIN} mapWidth={width} destination>
+        Destination point
+      </PinLabel>
       <Text style={styles.attribution}>© OpenStreetMap contributors</Text>
     </View>
   );
@@ -308,6 +346,17 @@ const styles = StyleSheet.create({
   map: { borderRadius: radii.lg, overflow: "hidden", backgroundColor: colors.surfaceSunken },
   routeSegment: { position: "absolute", height: ROUTE_WIDTH, borderRadius: ROUTE_WIDTH / 2, backgroundColor: ROUTE_COLOR },
   pin: { position: "absolute" },
+  // Web's flyover pin labels: a small bold uppercase pill. Each takes its
+  // pin's colour (grey here, red destination).
+  pinLabel: {
+    position: "absolute",
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 3,
+    borderRadius: radii.pill,
+    backgroundColor: colors.gray700,
+  },
+  pinLabelDestination: { backgroundColor: colors.primary },
+  pinLabelText: { ...typography.sublabel, fontFamily: typography.bodySemiBold.fontFamily, fontSize: 10, lineHeight: 13, letterSpacing: 0.6, color: colors.textOnPrimary },
   attribution: {
     position: "absolute",
     right: 0,
