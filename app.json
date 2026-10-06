@@ -14,7 +14,9 @@
         "backgroundColor": "#625C5E"
       },
       "permissions": [
-        "android.permission.CAMERA",
+        "android.permission.CAMERA"
+      ],
+      "blockedPermissions": [
         "android.permission.RECORD_AUDIO"
       ]
     },
@@ -41,6 +43,7 @@
         "expo-camera",
         {
           "cameraPermission": "ARISE uses your camera to scan room placards.",
+          "recordAudioAndroid": false,
           "barcodeScannerEnabled": false
         }
       ],
