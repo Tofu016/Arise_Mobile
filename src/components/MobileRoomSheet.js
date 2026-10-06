@@ -185,7 +185,7 @@ export default function MobileRoomSheet({
         </View>
         {has360 && (
           <View style={styles.actionsRow}>
-            <Button label="360° View" variant="neutral" onPress={onView360} size="sm" style={styles.actionBtn} />
+            <Button label="Augmented Reality View" variant="neutral" onPress={onView360} size="sm" style={styles.actionBtn} />
           </View>
         )}
 

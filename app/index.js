@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, Image } from "react-native";
+import { View, Text, StyleSheet, Pressable, Image, BackHandler } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
@@ -16,6 +16,7 @@ import { useRecentRooms, addRecentRoom, removeRecentRoom } from "../src/hooks/us
 import { useSavedRooms, saveRoom, unsaveRoom } from "../src/hooks/useSavedRooms";
 import MobileRoomSheet from "../src/components/MobileRoomSheet";
 import MobileDirectionsSheet from "../src/components/MobileDirectionsSheet";
+import RouteStrip from "../src/components/RouteStrip";
 import ElevatorPicker from "../src/components/ElevatorPicker";
 import FlyoverPanel from "../src/components/FlyoverPanel";
 import PanoramaViewer from "../src/components/PanoramaViewer";
@@ -35,10 +36,8 @@ import { colors, typography, radii, spacing, shadows } from "../src/theme";
 // Auto walk steps along the route every 3 s — the brand board's
 // "AUTO WALK (EVERY 3S)".
 const AUTO_WALK_MS = 3000;
-// The bottom-right buttons: the gyro toggle (its image, no plate) and the
-// round AR button stacked above it.
+// The bottom-right gyro toggle (its image, no plate).
 const GYRO_SIZE = 76;
-const AR_BTN_SIZE = 50;
 
 export default function MainScreen() {
   const router = useRouter();
@@ -295,6 +294,18 @@ export default function MainScreen() {
   // route the same way. `null` means no directions are open.
   const [directions, setDirections] = useState(null);
 
+  // Following a route: once the visitor starts walking it (Start walking,
+  // a step, Skip hallway, auto walk), the Directions sheet, which covered
+  // most of the panorama, gives way to the compact RouteStrip at the
+  // bottom, and the bottom nav hides to make room for it. A back button in
+  // the top-left corner (or Android's back) brings the sheet and the nav
+  // back; any new route planning (opening directions, switching to or from
+  // Nearest exit) starts on the sheet. A route that needs a choice (stairs
+  // or elevator) also shows the sheet, where that choice is asked.
+  const [routeNav, setRouteNav] = useState(false);
+  const navigating =
+    routeNav && panelMode === "directions" && !!directions?.path && !directions.pendingModeChoice;
+
   // Keep an active route in sync with wherever the visitor actually is:
   // following the route advances the step, wandering off re-routes from the
   // new spot (honoring the chosen stairs/elevator), and off a Nearest exit
@@ -306,6 +317,7 @@ export default function MainScreen() {
   }, [currentId]);
 
   const showDirections = (next) => {
+    setRouteNav(false);
     setDirections(next);
     setSearchQuery("");
     searchInputRef.current?.blur();
@@ -338,6 +350,7 @@ export default function MainScreen() {
   const plannedDestinationRef = useRef(null);
   const switchToDirections = () => {
     setAutoWalking(false);
+    setRouteNav(false);
     const planned = plannedDestinationRef.current;
     setDirections({ ...route.openDirections(current), toQuery: planned?.toQuery || "", toId: planned?.toId || null });
   };
@@ -366,6 +379,7 @@ export default function MainScreen() {
 
   const closeDirections = () => {
     setAutoWalking(false);
+    setRouteNav(false);
     setDirections(null);
     closePanel();
   };
@@ -390,14 +404,18 @@ export default function MainScreen() {
     return next.path;
   };
 
+  // A found route goes straight to the compact RouteStrip, rather than
+  // waiting on a second tap on the sheet's step button. A route that needs a
+  // stairs/elevator choice keeps the sheet (see `navigating`).
   const handleGetDirections = () => {
-    computeRoute();
+    if (computeRoute()) setRouteNav(true);
   };
 
   const handleChooseMode = (mode) => setDirections((d) => route.chooseTransportMode(d, mode));
 
   const handleStartWalking = () => {
     if (!directions?.path) return;
+    setRouteNav(true);
     jumpToNode(directions.path[0]);
     setDirections((d) => (d ? route.restartRoute(d) : d));
     setPanelMode("directions"); // jumpToNode closes the panel — reopen it for the route in progress
@@ -411,6 +429,7 @@ export default function MainScreen() {
   const handleWalkToNextStop = () => {
     const step = route.nextStep(directions, hotspots, nodes);
     if (!step) return;
+    setRouteNav(true);
     if (step.kind === "walk") {
       goTo(step.id, { yaw: step.yaw, defaultYaw: step.defaultYaw, defaultPitch: step.defaultPitch });
       return;
@@ -425,12 +444,21 @@ export default function MainScreen() {
   const progress = route.routeProgress(directions, { byId, hotspots, entryYaw: entryView.yaw, nodes });
   const { arrived, nextStopId, nextStopName, nextElevator, nextFireStairs, turnInstruction } = progress;
   const nextElevatorFloor = nextElevator?.floor ?? null;
+  // On arrival the destination room's own marker in the photo, if the node
+  // has one labelled with the room the visitor asked for: the view turns to
+  // it and it glows, as the next stop's hotspot does on the way.
+  const destinationRoomName = directions?.emergency ? "" : (directions?.toQuery || "").trim().toLowerCase();
+  const destinationRoomMarkerId =
+    arrived && destinationRoomName
+      ? markers.find((m) => m.type === "room" && (m.label || "").trim().toLowerCase() === destinationRoomName)?.id ?? null
+      : null;
 
   // "Skip hallway": once walking, the end of the straight run ahead in one
   // move (see route.straightRunAhead).
   const skip = route.hasStartedWalking(directions, currentId) ? route.straightRunAhead(directions, byId) : null;
   const handleSkipAhead = () => {
     if (!skip) return;
+    setRouteNav(true);
     goTo(skip.targetId, skip.angle, { from: skip.via[skip.via.length - 1] });
   };
 
@@ -474,6 +502,7 @@ export default function MainScreen() {
     const path = directions?.path || computeRoute();
     if (!path) return;
     setAutoWalking(true);
+    setRouteNav(true);
     if (directions?.path) autoStep(path);
   };
 
@@ -488,6 +517,17 @@ export default function MainScreen() {
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoWalking, currentId, directions?.path, directions?.stepIndex, arrived]);
+
+  // Android's back while following a route does what the top-left back
+  // button does: brings the Directions sheet and the nav back.
+  useEffect(() => {
+    if (!navigating) return undefined;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      setRouteNav(false);
+      return true;
+    });
+    return () => sub.remove();
+  }, [navigating]);
 
   // ---------- Bottom nav ----------
   const recentNames = useRecentRooms();
@@ -597,17 +637,13 @@ export default function MainScreen() {
               // As on web: the route's next hotspot turns green, and an
               // elevator landing that is the next step pulses.
               highlightedId={nextStopId}
-              highlightedMarkerId={nextElevator?.markerId ?? nextFireStairs?.markerId ?? null}
+              highlightedMarkerId={nextElevator?.markerId ?? nextFireStairs?.markerId ?? destinationRoomMarkerId}
               previewsHidden={!!elevatorPicker}
               gyroEnabled={gyroOn}
+              autoPan={!!nextStopId || !!destinationRoomMarkerId}
               entryYaw={entryView.yaw}
               entryPitch={entryView.pitch}
             />
-            {current.photo && !panorama && !photoError && (
-              <View style={styles.panoramaSpinner} pointerEvents="none">
-                <LoadingSpinner label="Loading photo" />
-              </View>
-            )}
             {photoError && (
               <View style={styles.panoramaStatus} pointerEvents="none">
                 <Text style={styles.panoramaErrorText}>{photoError}</Text>
@@ -619,6 +655,14 @@ export default function MainScreen() {
         )}
       </View>
 
+      {/* The photo's loading spinner: over the whole screen, in its exact
+          middle (not inside the panorama's own container). */}
+      {current?.photo && !panorama && !photoError && (
+        <View style={styles.panoramaSpinner} pointerEvents="none">
+          <LoadingSpinner label="Loading photo" />
+        </View>
+      )}
+
       {/* ---------- Top: the logo, centred — SDCA and ARISE taking turns
           (see TopLogo). Brand board: nothing else up here, to leave the
           panorama clear. ---------- */}
@@ -627,29 +671,8 @@ export default function MainScreen() {
       </View>
 
       {/* ---------- Bottom-right, above the nav: the gyro look-around
-          toggle in the corner, the AR view button stacked above it (centred
-          over it). The placard scanner is the bottom nav's scan button. Hidden
+          toggle. The placard scanner is the bottom nav's scan button. Hidden
           while a sheet is up. ---------- */}
-      {!panelMode && (
-        <Animated.View
-          entering={FadeIn.duration(200)}
-          exiting={FadeOut.duration(150)}
-          style={[
-            styles.cornerBtnWrap,
-            gyroAvailable
-              ? { bottom: sheetBottom + 4 + GYRO_SIZE + spacing.sm, right: spacing.xl + (GYRO_SIZE - AR_BTN_SIZE) / 2 }
-              : { bottom: sheetBottom + 4, right: spacing.xl },
-          ]}
-        >
-          <Pressable
-            style={({ pressed }) => [styles.roundFloatingBtn, styles.largeFloatingBtn, pressed && styles.roundFloatingBtnPressed]}
-            onPress={() => currentId && router.push({ pathname: "/ar-viewer", params: { nodeId: currentId } })}
-            accessibilityLabel="View in AR"
-          >
-            <Icon name="arView" size={24} color={colors.textSecondary} />
-          </Pressable>
-        </Animated.View>
-      )}
       {!panelMode && gyroAvailable && (
         <Animated.View
           entering={FadeIn.duration(200)}
@@ -749,7 +772,50 @@ export default function MainScreen() {
         />
       )}
 
-      {panelMode === "directions" && directions && (
+      {navigating && (
+        <RouteStrip
+          directions={directions}
+          currentId={currentId}
+          arrived={arrived}
+          nextStopName={nextStopName}
+          turnInstruction={turnInstruction}
+          nextElevatorFloor={nextElevatorFloor}
+          nextFireStairs={nextFireStairs}
+          skip={skip}
+          autoWalking={autoWalking}
+          onStartWalking={handleStartWalking}
+          onWalkNext={handleWalkToNextStop}
+          onSkipAhead={handleSkipAhead}
+          onToggleAutoWalk={toggleAutoWalk}
+          onNearestExit={openDirectionsToNearestExit}
+          onBlocked={handleBlocked}
+          onShowDetails={() => setRouteNav(false)}
+          onDone={closeDirections}
+          bottom={navBottom}
+        />
+      )}
+
+      {/* Following a route: the way back to the Directions sheet and the
+          nav, top-left beside the logo. */}
+      {navigating && (
+        <Animated.View
+          entering={FadeIn.duration(200)}
+          exiting={FadeOut.duration(150)}
+          style={[styles.backBtnWrap, { top: insets.top + 10 }]}
+        >
+          <Pressable
+            style={({ pressed }) => [styles.backBtn, pressed && styles.roundFloatingBtnPressed]}
+            hitSlop={6}
+            onPress={() => setRouteNav(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Back to directions"
+          >
+            <Icon name="proceedBack" size={16} color={colors.textSecondary} />
+          </Pressable>
+        </Animated.View>
+      )}
+
+      {panelMode === "directions" && directions && !navigating && (
         <MobileDirectionsSheet
           directions={directions}
           suggestions={directionsSuggestions}
@@ -782,8 +848,18 @@ export default function MainScreen() {
         />
       )}
 
-      {/* ---------- The bottom nav: every menu, one floating pill ---------- */}
-      <BottomNav active={panelMode && panelMode !== "directions" ? activeTab : null} onPress={handleTab} bottom={navBottom} />
+      {/* ---------- The bottom nav: every menu, one floating pill. Hidden
+          while following a route (the RouteStrip sits there). ---------- */}
+      {!navigating && (
+        <Animated.View
+          entering={FadeIn.duration(200)}
+          exiting={FadeOut.duration(150)}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="box-none"
+        >
+          <BottomNav active={panelMode && panelMode !== "directions" ? activeTab : null} onPress={handleTab} bottom={navBottom} />
+        </Animated.View>
+      )}
 
       {elevatorPicker && (
         <ElevatorPicker
@@ -848,8 +924,17 @@ const styles = StyleSheet.create({
     ...shadows.floating,
   },
   roundFloatingBtnPressed: { backgroundColor: colors.iconButton },
-  largeFloatingBtn: { position: "relative", width: AR_BTN_SIZE, height: AR_BTN_SIZE, borderRadius: AR_BTN_SIZE / 2 },
   cornerBtnWrap: { position: "absolute" },
+  backBtnWrap: { position: "absolute", left: spacing.lg },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.92)",
+    ...shadows.floating,
+  },
   gyroBtn: { width: GYRO_SIZE, height: GYRO_SIZE, alignItems: "center", justifyContent: "center" },
   gyroBtnPressed: { opacity: 0.6 },
   gyroIcon: { width: GYRO_SIZE, height: GYRO_SIZE },

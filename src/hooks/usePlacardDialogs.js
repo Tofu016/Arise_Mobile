@@ -32,6 +32,11 @@ function toFrontendDialog(row) {
     // room with details was matchable then, so a missing flag counts as on.
     ocrEnabled: row.ocr_enabled === undefined ? true : Number(row.ocr_enabled) === 1,
     placardName: row.placard_name || "",
+    // The 360 images the AR portal pages through after a placard scan, in
+    // order, uploaded on the OCR Management page; none shows the bundled
+    // placeholder. Only the scan path uses them: the room card's 360° VIEW
+    // keeps showing photo360.
+    ocrPhotos360: row.ocr_photos || [],
     ocrSearchTerms: (row.search_terms || []).map((t) => t.term),
     createdAt: row.created_at,
     updatedAt: row.updated_at,

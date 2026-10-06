@@ -1,19 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, Pressable, StyleSheet } from "react-native";
 import Animated, { useSharedValue, useAnimatedStyle, withTiming } from "react-native-reanimated";
+import { ViroTrackingStateConstants, ViroARTrackingReasonConstants } from "@reactvision/react-viro";
 import Icon from "./Icon";
 import ArJoystick, { JOYSTICK_SIZE } from "./ArJoystick";
 import { colors, spacing, shadows } from "../theme";
 
 // The controls under the AR portal, shared by both AR screens (ar-viewer,
 // ar-portal): the joystick (walk: the portal moves the opposite way), raise /
-// lower buttons (hold to move it up or down) and an anchor button that
-// freezes it.
+// lower buttons (hold to move it up or down), turn buttons (hold to turn it
+// left or right on the spot) and an anchor button that freezes it.
 //
 //   const controls = useArPortalControls();
 //   <ArScene … {...controls.sceneProps} />          // inside the AR scene
 //   {controls.placed && <ArPortalControls controls={controls} style={{ bottom }} />}
 //   {controls.tipVisible && <ArStatusPill>{PORTAL_TIP}</ArStatusPill>}
+//   {controls.trackingIssue && <ArStatusPill tone="error">{controls.trackingIssue}</ArStatusPill>}
 //   {controls.placed && <ArRecalibrateButton top={…} onPress={controls.recalibrate} />}
 //
 // Anchoring is a lock on these controls, not an AR anchor: the portal already
@@ -23,7 +25,7 @@ import { colors, spacing, shadows } from "../theme";
 // Anchored (by the button, or automatically on stepping through the door),
 // the controls stay put for FADE_DELAY_MS and then fade out; a tap on the
 // faded controls shows them again for another FADE_DELAY_MS. While anchored
-// the joystick and raise / lower buttons are dimmed and inert, only the
+// the joystick, raise / lower and turn buttons are dimmed and inert, only the
 // anchor button works (to release it).
 const FADE_DELAY_MS = 7000;
 const FADED_OPACITY = 0.25;
@@ -31,8 +33,30 @@ const LOCKED_OPACITY = 0.45; // joystick + lift while anchored but not yet faded
 const BUTTON_SIZE = 52;
 // How long the how-to tip stays up after the door appears.
 const TIP_MS = 9000;
+// Weak AR tracking is what makes the portal drift (the door itself never
+// moves on its own: ARCore's map of the room slides under it), so the
+// screens say why it's weak and what helps. A problem has to last
+// TRACKING_ISSUE_DELAY_MS before it shows, so a brief hiccup doesn't flash
+// a warning; it clears as soon as tracking is back to normal.
+const TRACKING_ISSUE_DELAY_MS = 1000;
+
+// The message for a tracking state, or null for none. Before the door is
+// placed, limited tracking with no particular reason is just AR starting
+// up, which the screens' "Hold your phone up" hint already covers.
+function trackingIssueFor(state, reason, placed) {
+  if (state === ViroTrackingStateConstants.TRACKING_NORMAL) return null;
+  if (reason === ViroARTrackingReasonConstants.TRACKING_REASON_EXCESSIVE_MOTION) {
+    return "Moving too fast for AR. Move your phone more slowly.";
+  }
+  if (reason === ViroARTrackingReasonConstants.TRACKING_REASON_INSUFFICIENT_FEATURES) {
+    return "AR can't see enough detail here. Point at a well-lit area with some texture.";
+  }
+  if (!placed) return null;
+  return "AR is losing its place, so the portal may drift. Move slowly over a well-lit, detailed area.";
+}
+
 export const PORTAL_TIP =
-  "Use the joystick to walk to the door, the arrows to set it on the floor, and the anchor to hold it still.";
+  "Use the joystick to walk to the door, the arrows to set it on the floor and turn it, and the anchor to hold it still.";
 
 export function useArPortalControls() {
   const [placed, setPlaced] = useState(false);
@@ -43,12 +67,17 @@ export function useArPortalControls() {
   const forwardRef = useRef(null); // which way the phone faces, from the AR scene
   const moveRef = useRef({ x: 0, y: 0 }); // the joystick's push
   const liftRef = useRef(0); // -1 lower, 0 none, 1 raise
+  const turnRef = useRef(0); // -1 left, 0 none, 1 right
   const anchoredRef = useRef(false);
   const recalibrateRef = useRef(0); // bumped to ask the scene for a fresh door
   const fadeTimer = useRef(null);
   const tipTimer = useRef(null);
   const firstTipShown = useRef(false);
   const [tipVisible, setTipVisible] = useState(false);
+  const placedRef = useRef(false); // `placed`, for the tracking callback
+  const [trackingIssue, setTrackingIssue] = useState(null);
+  const pendingIssue = useRef(null);
+  const issueTimer = useRef(null);
   // Changes on every showTip, so a tip still on screen is replaced (screens
   // key the pill by it) and its fade-in plays again.
   const [tipKey, setTipKey] = useState(0);
@@ -73,6 +102,7 @@ export function useArPortalControls() {
       if (value) {
         moveRef.current = { x: 0, y: 0 };
         liftRef.current = 0;
+        turnRef.current = 0;
       }
       wake();
     },
@@ -93,6 +123,7 @@ export function useArPortalControls() {
     () => () => {
       clearTimeout(fadeTimer.current);
       clearTimeout(tipTimer.current);
+      clearTimeout(issueTimer.current);
     },
     []
   );
@@ -103,10 +134,12 @@ export function useArPortalControls() {
       forwardRef,
       moveRef,
       liftRef,
+      turnRef,
       anchoredRef,
       recalibrateRef,
       // The first placement shows the tip; a recalibrate shows it itself.
       onPlaced: () => {
+        placedRef.current = true;
         setPlaced(true);
         if (firstTipShown.current) return;
         firstTipShown.current = true;
@@ -116,17 +149,25 @@ export function useArPortalControls() {
       onInsideChange: (inside) => {
         if (inside) setAnchored(true);
       },
+      onTrackingChange: (state, reason) => {
+        const issue = trackingIssueFor(state, reason, placedRef.current);
+        if (issue === pendingIssue.current) return;
+        pendingIssue.current = issue;
+        clearTimeout(issueTimer.current);
+        if (issue) issueTimer.current = setTimeout(() => setTrackingIssue(issue), TRACKING_ISSUE_DELAY_MS);
+        else setTrackingIssue(null);
+      },
     }),
     [setAnchored, showTip]
   );
 
-  return { placed, anchored, awake, tipVisible, tipKey, moveRef, liftRef, wake, toggleAnchor, recalibrate, sceneProps };
+  return { placed, anchored, awake, tipVisible, tipKey, trackingIssue, moveRef, liftRef, turnRef, wake, toggleAnchor, recalibrate, sceneProps };
 }
 
 // `style` positions the whole row (e.g. { bottom }); it can be an animated
 // style, so the AR viewer's row can follow its sheet.
 export default function ArPortalControls({ controls, style }) {
-  const { anchored, awake, moveRef, liftRef, wake, toggleAnchor } = controls;
+  const { anchored, awake, moveRef, liftRef, turnRef, wake, toggleAnchor } = controls;
   const faded = anchored && !awake;
 
   const opacity = useSharedValue(1);
@@ -164,8 +205,13 @@ export default function ArPortalControls({ controls, style }) {
         </View>
 
         <View style={[styles.lift, lock]} pointerEvents={anchored ? "none" : "auto"}>
-          <LiftButton direction={1} label="Raise the portal" icon="portalUp" liftRef={liftRef} />
-          <LiftButton direction={-1} label="Lower the portal" icon="portalDown" liftRef={liftRef} />
+          <HoldButton direction={1} label="Raise the portal" icon="portalUp" holdRef={liftRef} />
+          <HoldButton direction={-1} label="Lower the portal" icon="portalDown" holdRef={liftRef} />
+        </View>
+
+        <View style={[styles.lift, lock]} pointerEvents={anchored ? "none" : "auto"}>
+          <HoldButton direction={-1} label="Turn the portal left" icon="portalTurnLeft" holdRef={turnRef} />
+          <HoldButton direction={1} label="Turn the portal right" icon="portalTurnRight" holdRef={turnRef} />
         </View>
 
         {/* Faded out: the first tap only brings the controls back, so it
@@ -183,15 +229,16 @@ export default function ArPortalControls({ controls, style }) {
   );
 }
 
-// Held, not tapped: moves the portal for as long as it's pressed.
-function LiftButton({ direction, label, icon, liftRef }) {
+// Held, not tapped: moves (raise / lower) or turns the portal for as long as
+// it's pressed, by setting `holdRef` to `direction` and back to 0.
+function HoldButton({ direction, label, icon, holdRef }) {
   return (
     <Pressable
       onPressIn={() => {
-        liftRef.current = direction;
+        holdRef.current = direction;
       }}
       onPressOut={() => {
-        liftRef.current = 0;
+        holdRef.current = 0;
       }}
       hitSlop={6}
       accessibilityRole="button"

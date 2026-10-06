@@ -32,11 +32,24 @@ import { usePhotoFile } from "../hooks/usePhotoFile";
 // this. Only the photo depends on the file: the door stays mounted while a
 // new photo loads, so switching photos never resets the placement.
 //
+// `fallbackSource` (optional, a bundled require() image) is shown instead
+// when there is no `photoPath` or its download failed: the placard scan's
+// placeholder 360 image.
+//
 // The refs and callbacks come from useArPortalControls (ArPortalControls.js):
 // `anchoredRef.current` true freezes the door, `liftRef.current` is -1 / 0 / 1
-// (lower / none / raise), `onInsideChange(bool)` fires on every crossing.
+// (lower / none / raise), `turnRef.current` is -1 / 0 / 1 (left / none /
+// right), `onInsideChange(bool)` fires on every crossing,
+// `onTrackingChange(state, reason)` on every AR tracking change (Viro's
+// ViroTrackingStateConstants / ViroARTrackingReasonConstants).
 //
 //   <ArPortalScene photoPath={node.photo} {...controls.sceneProps} />
+
+// How long (ms) AR tracking has to stay normal, without a break, before the
+// door spawns. Placing on the very first normal reading put the door into
+// ARCore's youngest, least-refined map of the room, and the corrections
+// that came after showed up as the door drifting away.
+const TRACKING_SETTLE_MS = 1500;
 
 // ViroReact works in meters, not feet: 9 feet is roughly 2.7432 meters.
 // Confirmed working at this distance on device.
@@ -78,6 +91,14 @@ const JOYSTICK_SPEED = 1.2;
 const JOYSTICK_TICK_MS = 33;
 // The raise / lower buttons (liftRef), metres per second while held.
 const LIFT_SPEED = 0.4;
+// The turn buttons (turnRef), degrees per second while held. The door turns
+// on the spot about its own centre (Viro's Y axis), and the photo with it,
+// so the room stays lined up with its doorway. A new door (first placement
+// or recalibrate) starts facing the phone; see the placement below.
+const TURN_SPEED = 45;
+// Which way a positive Viro Y rotation looks from above isn't confirmed on a
+// device yet. If "turn right" turns the door left, flip this to -1.
+const TURN_DIRECTION = 1;
 // Going through the door: the opening is 1.2 m wide (MASK_SCALE); passing
 // its plane within this far (m) of its centre, sideways, counts: the
 // opening's half-width plus some slack, so "close to it" is enough.
@@ -157,17 +178,25 @@ ViroAnimations.registerAnimations({
 
 export default function ArPortalScene({
   photoPath,
+  fallbackSource,
   forwardRef,
   moveRef,
   liftRef,
+  turnRef,
   anchoredRef,
   recalibrateRef,
   onPlaced,
   onInsideChange,
+  onTrackingChange,
 }) {
-  const { uri: photoUri } = usePhotoFile(photoPath);
+  const { uri: photoUri, error: photoError } = usePhotoFile(photoPath);
+  let photoSource = null;
+  if (photoUri) photoSource = { uri: photoUri };
+  else if (fallbackSource && (!photoPath || photoError)) photoSource = fallbackSource;
 
   const [placedPosition, setPlacedPosition] = useState(null);
+  // The door's turn about the vertical, in degrees (the turn buttons).
+  const [yaw, setYaw] = useState(0);
   // Once the rise has finished, the door and mask switch to a plain static
   // position with NO animation prop at all. A declarative animation={{run:
   // true}} re-applies itself on every re-render (e.g. from the photo hook's
@@ -175,8 +204,9 @@ export default function ArPortalScene({
   // setting run: false, is what stops that.
   const [hasRisen, setHasRisen] = useState(false);
   // Refs, not state: these gate the ONE-TIME placement decision without
-  // re-rendering on every camera transform update.
-  const isTrackingNormal = useRef(false);
+  // re-rendering on every camera transform update. normalSince is when the
+  // current unbroken run of normal tracking began (null: not normal now).
+  const normalSince = useRef(null);
   const hasPlaced = useRef(false);
 
   useEffect(() => {
@@ -188,12 +218,15 @@ export default function ArPortalScene({
     return () => clearTimeout(timer);
   }, [placedPosition, hasRisen]);
 
-  const handleTrackingUpdated = (state) => {
-    // Only trust the camera transform once AR has found stable tracking;
-    // the first readings before that can be unreliable.
+  const handleTrackingUpdated = (state, reason) => {
+    // Only trust the camera transform once AR has found stable tracking, and
+    // kept it for TRACKING_SETTLE_MS; any break starts the wait again.
     if (state === ViroTrackingStateConstants.TRACKING_NORMAL) {
-      isTrackingNormal.current = true;
+      if (normalSince.current === null) normalSince.current = Date.now();
+    } else {
+      normalSince.current = null;
     }
+    onTrackingChange?.(state, reason);
   };
 
   // ---------- Going through the door ----------
@@ -202,13 +235,16 @@ export default function ArPortalScene({
   // moving instead) left you standing past the door until you swayed the
   // phone. Here, whichever moved, crossing the door's plane close enough to
   // the opening (DOOR_VICINITY) switches you in or out. Walking around the
-  // door, off to the side, changes nothing.
+  // door, off to the side, changes nothing. Worked out in the door's own
+  // frame (the phone's offset turned back by the door's yaw), so a turned
+  // door's plane and opening are where you see them.
   //   outside: the portal; the photo shows only through the door;
   //   inside:  the photo is a big sphere around you, and the doorway (the
   //            portal's own mask shape, in an invisible "hole" material)
   //            is drawn first and blocks the sphere behind it, so looking
   //            back, the real world shows through the door. Two-way.
   const placedRef = useRef(null); // the door's position, for the checks below
+  const yawRef = useRef(0); // the door's yaw, for the checks below
   const cameraRef = useRef(null); // the phone's latest position
   const sideRef = useRef(0); // which side of the door's plane the phone is on
   const insideRef = useRef(false);
@@ -220,12 +256,18 @@ export default function ArPortalScene({
     const cam = cameraRef.current;
     const door = placedRef.current;
     if (!cam || !door) return;
-    const dz = cam[2] - door[2];
+    // A Y rotation by a maps the door's (x, z) to the world's
+    // (x cos a + z sin a, -x sin a + z cos a); this is its inverse.
+    const a = (yawRef.current * Math.PI) / 180;
+    const wx = cam[0] - door[0];
+    const wz = cam[2] - door[2];
+    const dx = wx * Math.cos(a) - wz * Math.sin(a);
+    const dz = wx * Math.sin(a) + wz * Math.cos(a);
     const side = dz > PLANE_DEADBAND ? 1 : dz < -PLANE_DEADBAND ? -1 : 0;
     if (side === 0 || side === sideRef.current) return;
     const dy = cam[1] - door[1];
     const atDoorHeight = dy >= -DOOR_LEEWAY_BELOW && dy <= MASK_SCALE[1] + DOOR_LEEWAY_ABOVE;
-    const crossedAtDoor = sideRef.current !== 0 && atDoorHeight && Math.abs(cam[0] - door[0]) <= DOOR_VICINITY;
+    const crossedAtDoor = sideRef.current !== 0 && atDoorHeight && Math.abs(dx) <= DOOR_VICINITY;
     sideRef.current = side;
     if (!crossedAtDoor) return;
     insideRef.current = !insideRef.current;
@@ -240,10 +282,12 @@ export default function ArPortalScene({
   const seenRecalibrate = useRef(recalibrateRef?.current ?? 0);
   const resetPortal = () => {
     placedRef.current = null;
+    yawRef.current = 0;
     hasPlaced.current = false;
     sideRef.current = 0;
     insideRef.current = false;
     setPlacedPosition(null);
+    setYaw(0);
     setHasRisen(false);
     setInside(false);
     setInsideCentre(null);
@@ -264,7 +308,8 @@ export default function ArPortalScene({
     if (forwardRef && flat > 0.1) forwardRef.current = [forward[0] / flat, forward[2] / flat];
     cameraRef.current = position;
     checkCrossing();
-    if (!isTrackingNormal.current || hasPlaced.current) return;
+    if (hasPlaced.current) return;
+    if (normalSince.current === null || Date.now() - normalSince.current < TRACKING_SETTLE_MS) return;
     // A point straight ahead of the camera at a fixed real-world distance:
     // no hit-testing against a detected surface, no tap required.
     const target = [
@@ -272,14 +317,24 @@ export default function ArPortalScene({
       position[1] + forward[1] * PLACEMENT_DISTANCE_METERS,
       position[2] + forward[2] * PLACEMENT_DISTANCE_METERS,
     ];
+    // Turned to face the phone. Unturned, the door faces the world's +Z,
+    // which is back toward wherever the phone pointed when AR started, so a
+    // door spawned after turning away from there came up side-on. Its +Z
+    // turned by a points along (sin a, cos a) (see checkCrossing); this
+    // points it back along the phone's level facing. Straight up or down
+    // has no level facing, so it stays unturned.
+    const yaw = flat > 0.1 ? (Math.atan2(-forward[0], -forward[2]) * 180) / Math.PI : 0;
+    yawRef.current = yaw;
+    setYaw(yaw);
     placedRef.current = target;
     setPlacedPosition(target);
     hasPlaced.current = true; // locks in; later transform updates are ignored
     onPlaced?.(); // the screen drops its "hold your phone up" hint
   };
 
-  // Joystick and raise / lower buttons: while held, move the portal (see
-  // JOYSTICK_SPEED, LIFT_SPEED). Nothing moves while anchored.
+  // Joystick, raise / lower and turn buttons: while held, move or turn the
+  // portal (see JOYSTICK_SPEED, LIFT_SPEED, TURN_SPEED). Nothing moves while
+  // anchored.
   const placed = !!placedPosition;
   useEffect(() => {
     if (!placed || !moveRef || !forwardRef) return undefined;
@@ -291,8 +346,16 @@ export default function ArPortalScene({
       if (anchoredRef?.current) return;
       const { x, y } = moveRef.current;
       const lift = liftRef?.current || 0;
+      const turn = turnRef?.current || 0;
+      if (turn) {
+        yawRef.current = (yawRef.current + turn * TURN_DIRECTION * TURN_SPEED * dt) % 360;
+        setYaw(yawRef.current);
+      }
       const f = forwardRef.current;
-      if ((!x && !y && !lift) || !f) return;
+      if ((!x && !y && !lift) || !f) {
+        if (turn) checkCrossing(); // the door's plane swept past you
+        return;
+      }
       // You move forward·y + right·x; the portal moves the other way.
       // Right of forward [fx, fz] is [-fz, fx] here. (An earlier [fz, -fx]
       // was tuned when the stick placed the door directly, and came out
@@ -329,13 +392,13 @@ export default function ArPortalScene({
                   widthSegmentCount={48}
                   heightSegmentCount={24}
                   facesOutward={false}
-                  rotation={INSIDE_ROTATION}
+                  rotation={[INSIDE_ROTATION[0], INSIDE_ROTATION[1] + yaw, INSIDE_ROTATION[2]]}
                   scale={INSIDE_MIRROR ? [-1, 1, 1] : [1, 1, 1]}
                   materials={[insideMaterial]}
                   renderingOrder={1}
                 />
               )}
-              <ViroNode position={placedPosition}>
+              <ViroNode position={placedPosition} rotation={[0, yaw, 0]}>
                 <Viro3DObject
                   type="OBJ"
                   source={require("../../assets/models/portal-mask.obj")}
@@ -356,7 +419,7 @@ export default function ArPortalScene({
               </ViroNode>
             </>
           ) : (
-            <ViroPortalScene position={placedPosition}>
+            <ViroPortalScene position={placedPosition} rotation={[0, yaw, 0]}>
               <ViroPortal>
                 <Viro3DObject
                   type="OBJ"
@@ -391,7 +454,7 @@ export default function ArPortalScene({
               </ViroPortal>
               {/* The only thing that should blink out briefly during a
                   photo switch. */}
-              {photoUri && <Viro360Image source={{ uri: photoUri }} />}
+              {photoSource && <Viro360Image source={photoSource} />}
             </ViroPortalScene>
           )}
         </>

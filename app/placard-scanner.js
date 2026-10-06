@@ -6,6 +6,7 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { recognizeText } from "@infinitered/react-native-mlkit-text-recognition";
 import { useSearchableRooms } from "../src/hooks/useSearchableRooms";
+import { useOcrSettings } from "../src/hooks/useOcrSettings";
 import { matchRoomsFromOcr } from "../src/utils/ocrRoomMatch";
 import { isOcrEligible } from "../src/utils/ocrTerms";
 import { reconstructVerticalText } from "../src/utils/verticalTextSort";
@@ -14,6 +15,7 @@ import { colors, typography, radii, spacing, shadows } from "../src/theme";
 import Button from "../src/components/Button";
 import ListRow from "../src/components/ListRow";
 import Icon from "../src/components/Icon";
+import { ArStatusPill } from "../src/components/ArChrome";
 
 // Two distinct shapes rather than one compromise — the person picks which
 // one matches what they're looking at, so each style gets a reticle
@@ -32,10 +34,13 @@ export default function PlacardScannerScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef(null);
   // Only the rooms an admin put on OCR (the web's OCR Management page), which
-  // all have details: a scan leads on to the room's AR portal, which needs
-  // the details' 360 photo, and the Placard name and search terms live there.
+  // all have details: the Placard name, search terms and the AR 360 image
+  // the portal shows after a scan all live there.
   const { searchableRooms: allRooms } = useSearchableRooms();
   const searchableRooms = useMemo(() => allRooms.filter((r) => isOcrEligible(r)), [allRooms]);
+  // The admin's message from OCR Management, shown at the top of the
+  // camera in the AR portal's how-to tip style and place.
+  const { scannerMessage } = useOcrSettings();
 
   const [reticleMode, setReticleMode] = useState("horizontal");
 
@@ -174,11 +179,16 @@ export default function PlacardScannerScreen() {
         <Icon name="terminate" size={17} color={colors.textSecondary} />
       </Pressable>
 
+      {scannerMessage ? <ArStatusPill tone="plain" style={{ top: insets.top + 64 }}>{scannerMessage}</ArStatusPill> : null}
+
       <View style={[styles.bottomArea, { bottom: insets.bottom + 24 }]}>
         {phase === "capture" && (
           <>
             <Text style={styles.instructionText}>Fit the placard inside the brackets</Text>
+            {/* Equal-width side slots keep the capture button centered. */}
             <View style={styles.controls}>
+              <View style={styles.controlsSide} />
+
               <Pressable
                 onPress={handleCapture}
                 accessibilityLabel="Scan placard"
@@ -187,35 +197,29 @@ export default function PlacardScannerScreen() {
                 <View style={styles.captureInner} />
               </Pressable>
 
-              <Pressable
-                onPress={() => router.navigate({ pathname: "/", params: { panel: "search" } })}
-                accessibilityLabel="Search instead"
-                style={({ pressed }) => [styles.searchCircle, pressed && styles.roundBtnPressed]}
-              >
-                <Icon name="search" size={18} color={colors.textSecondary} />
-              </Pressable>
-
               {/* Landscape = a normal single-line placard; portrait = a
                   stack of individual letters (see RETICLE_CONFIGS). */}
-              <View style={styles.orientation}>
-                {[
-                  ["horizontal", "scanLandscape", "Scan in landscape"],
-                  ["vertical", "scanPortrait", "Scan in portrait"],
-                ].map(([mode, icon, label]) => (
-                  <Pressable
-                    key={mode}
-                    onPress={() => setReticleMode(mode)}
-                    accessibilityLabel={label}
-                    accessibilityState={{ selected: reticleMode === mode }}
-                    style={[styles.orientationOption, reticleMode === mode && styles.orientationOptionActive]}
-                  >
-                    <Icon
-                      name={icon}
-                      size={18}
-                      color={reticleMode === mode ? colors.textOnPrimary : colors.textSecondary}
-                    />
-                  </Pressable>
-                ))}
+              <View style={[styles.controlsSide, styles.controlsSideEnd]}>
+                <View style={styles.orientation}>
+                  {[
+                    ["horizontal", "scanLandscape", "Scan in landscape"],
+                    ["vertical", "scanPortrait", "Scan in portrait"],
+                  ].map(([mode, icon, label]) => (
+                    <Pressable
+                      key={mode}
+                      onPress={() => setReticleMode(mode)}
+                      accessibilityLabel={label}
+                      accessibilityState={{ selected: reticleMode === mode }}
+                      style={[styles.orientationOption, reticleMode === mode && styles.orientationOptionActive]}
+                    >
+                      <Icon
+                        name={icon}
+                        size={18}
+                        color={reticleMode === mode ? colors.textOnPrimary : colors.textSecondary}
+                      />
+                    </Pressable>
+                  ))}
+                </View>
               </View>
             </View>
           </>
@@ -246,9 +250,12 @@ export default function PlacardScannerScreen() {
                   // navigation), which left two things fighting over the same
                   // camera hardware — the likely cause of a silent crash with
                   // no error log right as the AR camera session started.
+                  // source "scan": the portal shows the room's AR 360 image
+                  // from OCR Management (or the placeholder), not its 360
+                  // photo.
                   router.replace({
                     pathname: "/ar-portal",
-                    params: { nodeId: matchedRoom.node.id, roomName: matchedRoom.roomName },
+                    params: { nodeId: matchedRoom.node.id, roomName: matchedRoom.roomName, source: "scan" },
                   })
                 }
               >
@@ -354,9 +361,10 @@ const styles = StyleSheet.create({
     width: "100%",
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
     paddingHorizontal: spacing.md,
   },
+  controlsSide: { flex: 1 },
+  controlsSideEnd: { alignItems: "flex-end" },
   captureOuter: {
     width: 70,
     height: 70,
@@ -368,16 +376,6 @@ const styles = StyleSheet.create({
   },
   captureOuterPressed: { backgroundColor: colors.iconButton },
   captureInner: { width: 54, height: 54, borderRadius: 27, backgroundColor: colors.primary },
-  searchCircle: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.overlaySurface,
-    borderWidth: 3,
-    borderColor: colors.surfaceSunken,
-  },
   orientation: {
     flexDirection: "row",
     backgroundColor: colors.overlaySurface,

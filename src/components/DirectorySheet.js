@@ -32,6 +32,9 @@ import { colors, typography, radii, spacing } from "../theme";
 // room the tour no longer lists (its details still exist, but no spot
 // serves it) stays, greyed, rather than silently disappearing.
 //
+// Each room row shows the room's first photo (in the order an admin sorted
+// them) fading in on the right, as web's directory cells do (see ListRow).
+//
 // The sheet is only ever as tall as its content (no empty space below the
 // building list).
 
@@ -40,6 +43,8 @@ import { colors, typography, radii, spacing } from "../theme";
 function buildingHeading(label) {
   return /building|campus|hall|center|centre|annex|library|gym/i.test(label) ? label : `${label} Building`;
 }
+
+const firstPhoto = (room) => room?.placard?.photos?.[0]?.path;
 
 // Peek: just the DIRECTORY title showing.
 const PEEK_HEIGHT = 96;
@@ -151,6 +156,7 @@ export default function DirectorySheet({
                   onPress={room ? () => onPickRoom(room) : undefined}
                   dimmed={!room}
                   indent={spacing.md}
+                  photo={firstPhoto(room)}
                   trailing="remove"
                   trailingLabel={`Remove ${room?.roomName ?? entry.room_name} from saved`}
                   onTrailingPress={() => onRemoveSaved(entry, room)}
@@ -204,6 +210,7 @@ export default function DirectorySheet({
                             title={r.roomName}
                             onPress={() => onPickRoom(r)}
                             indent={spacing.md}
+                            photo={firstPhoto(r)}
                           />
                         ))}
                       </View>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -9,6 +9,18 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { usePublicNodes } from "../src/hooks/usePublicNodes";
 import StartupScreen from "../src/components/StartupScreen";
 import { colors } from "../src/theme";
+
+// Immersive mode: the status bar and the phone's back/home/recents bar stay
+// hidden. A swipe from the edge still reveals them briefly (Android's own
+// behaviour); the listener hides the navigation bar again when it appears.
+// expo-navigation-bar is native, so a dev build made before it was added
+// doesn't have it: required defensively and skipped rather than crashing.
+let NavigationBar = null;
+try {
+  NavigationBar = require("expo-navigation-bar");
+} catch {
+  // Falls back to leaving the navigation bar as the system has it.
+}
 
 // The native splash stays up until the startup screen (which uses the
 // brand fonts) is ready to take over — see StartupScreen.
@@ -93,6 +105,15 @@ function StartupGate() {
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts(FONT_FILES);
+  useEffect(() => {
+    if (!NavigationBar || Platform.OS !== "android") return undefined;
+    const hide = () => NavigationBar.setVisibilityAsync("hidden").catch(() => {});
+    hide();
+    const sub = NavigationBar.addVisibilityListener(({ visibility }) => {
+      if (visibility === "visible") setTimeout(hide, 2500);
+    });
+    return () => sub.remove();
+  }, []);
   // A split second on launch, behind the native splash. If loading ever
   // fails, carry on with the system font rather than a blank app.
   if (!fontsLoaded && !fontError) return null;
@@ -103,14 +124,13 @@ export default function RootLayout() {
     // all without this, with no error shown to explain why.
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <StatusBar style="dark" />
+        <StatusBar hidden />
         {/* The app, with the startup screen laid over the whole of it. */}
         <View style={{ flex: 1 }}>
           <Stack screenOptions={SCREEN_OPTIONS}>
             <Stack.Screen name="index" options={{ animation: "fade" }} />
             {/* Camera / AR screens rise over the tour. */}
             <Stack.Screen name="placard-scanner" options={{ animation: "fade_from_bottom" }} />
-            <Stack.Screen name="ar-viewer" options={{ animation: "fade_from_bottom" }} />
             <Stack.Screen name="ar-portal" options={{ animation: "fade_from_bottom" }} />
           </Stack>
           <StartupGate />

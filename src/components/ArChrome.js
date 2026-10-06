@@ -4,7 +4,7 @@ import Icon from "./Icon";
 import { colors, typography, radii, spacing, shadows } from "../theme";
 
 // The controls laid over the live camera on the AR screens (ar-viewer,
-// ar-portal), in the app's style: near-opaque white so they read over any
+// ar-portal; the placard scanner borrows ArStatusPill), in the app's style: near-opaque white so they read over any
 // scene.
 
 // The round close button, top left — the same button as everywhere else.
@@ -37,8 +37,9 @@ export function ArRecalibrateButton({ onPress, top }) {
 }
 
 // A short status line over the camera: a hint ("Move your phone slowly…"),
-// loading (spinner) or an error (red text).
-//   tone: "hint" | "loading" | "error"
+// loading (spinner), an error (red text) or plain (text only, for the
+// admin's scanner message).
+//   tone: "hint" | "loading" | "error" | "plain"
 export function ArStatusPill({ children, tone = "hint", style }) {
   return (
     <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(200)} style={[styles.pill, style]}>
@@ -46,6 +47,40 @@ export function ArStatusPill({ children, tone = "hint", style }) {
       {tone === "hint" && <Icon name="arView" size={18} color={colors.primary} />}
       <Text style={[styles.pillText, tone === "error" && styles.pillTextError]}>{children}</Text>
     </Animated.View>
+  );
+}
+
+// Previous / "2 / 5" / next, for paging through a room's 360 images inside
+// the portal. Wraps around at either end.
+export const AR_PAGER_HEIGHT = 44;
+
+export function ArPager({ index, count, onPrevious, onNext, style }) {
+  return (
+    <View style={[styles.pagerRow, style]} pointerEvents="box-none">
+      <Pressable
+        onPress={onPrevious}
+        hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel="Previous 360 image"
+        style={({ pressed }) => [styles.pagerBtn, pressed && styles.closeBtnPressed]}
+      >
+        <Icon name="proceedBack" size={16} color={colors.textSecondary} />
+      </Pressable>
+      <View style={styles.pagerCount} accessibilityLabel={`360 image ${index + 1} of ${count}`}>
+        <Text style={styles.pagerText}>
+          {index + 1} / {count}
+        </Text>
+      </View>
+      <Pressable
+        onPress={onNext}
+        hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel="Next 360 image"
+        style={({ pressed }) => [styles.pagerBtn, pressed && styles.closeBtnPressed]}
+      >
+        <Icon name="proceedNext" size={16} color={colors.textSecondary} />
+      </Pressable>
+    </View>
   );
 }
 
@@ -103,4 +138,34 @@ const styles = StyleSheet.create({
     ...shadows.floating,
   },
   titleText: { ...typography.label, color: colors.textPrimary },
+  pagerRow: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    height: AR_PAGER_HEIGHT,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+  },
+  pagerBtn: {
+    width: AR_PAGER_HEIGHT,
+    height: AR_PAGER_HEIGHT,
+    borderRadius: AR_PAGER_HEIGHT / 2,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.overlaySurface,
+    ...shadows.floating,
+  },
+  pagerCount: {
+    minWidth: 72,
+    height: AR_PAGER_HEIGHT,
+    paddingHorizontal: spacing.lg,
+    borderRadius: AR_PAGER_HEIGHT / 2,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.overlaySurface,
+    ...shadows.floating,
+  },
+  pagerText: { ...typography.label, color: colors.textPrimary },
 });

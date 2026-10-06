@@ -1,40 +1,22 @@
 import { View, ActivityIndicator, StyleSheet } from "react-native";
-import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
-import { colors, shadows } from "../theme";
+import { colors } from "../theme";
 
-// A loading spinner that reads over anything: the brand red spinner on a
-// white round backing with a soft shadow, so it shows up over a dark or
-// busy panorama as well as the plain grey backdrop. Grey "Loading…" text was
-// too easy to miss. Fades in and out. `label` is for screen readers only.
+// A loading spinner for the middle of the screen: just the brand red
+// spinner, with no backing plate. It is a plain View rather than a
+// reanimated one with entering/exiting animations: those leave the spinner
+// drawn in the wrong place (a bar along the bottom of the viewport) when its
+// parent unmounts in the same render, as the tour's photo overlay does once
+// the photo arrives. `label` is for screen readers only.
 //
 //   <LoadingSpinner label="Loading photo" />
-const SIZE = 64;
-
 export default function LoadingSpinner({ label = "Loading", style }) {
   return (
-    <Animated.View
-      entering={FadeIn.duration(200)}
-      exiting={FadeOut.duration(200)}
-      style={[styles.backing, style]}
-      accessible
-      accessibilityRole="progressbar"
-      accessibilityLabel={label}
-    >
-      <View pointerEvents="none">
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
-    </Animated.View>
+    <View style={[styles.wrap, style]} accessible accessibilityRole="progressbar" accessibilityLabel={label}>
+      <ActivityIndicator size="large" color={colors.primary} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  backing: {
-    width: SIZE,
-    height: SIZE,
-    borderRadius: SIZE / 2,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.overlaySurface,
-    ...shadows.floating,
-  },
+  wrap: { alignItems: "center", justifyContent: "center" },
 });

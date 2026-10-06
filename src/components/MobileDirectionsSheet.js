@@ -23,6 +23,10 @@ import Icon from "./Icon";
 // and differ; each step says which way to turn; SKIP HALLWAY jumps to the
 // end of a straight run; and a Nearest exit route always lists the
 // emergency contacts.
+//
+// Once the visitor starts walking the route, app/index.js swaps this sheet
+// for the compact RouteStrip so the panorama stays visible; the screen's
+// top-left back button brings this sheet back.
 
 function RouteField({ value, onChangeText, onFocus, placeholder, editable = true }) {
   return (
@@ -37,6 +41,13 @@ function RouteField({ value, onChangeText, onFocus, placeholder, editable = true
       autoCorrect={false}
     />
   );
+}
+
+// The step button's label, shared with the RouteStrip.
+export function nextStepLabel({ nextElevatorFloor, nextFireStairs, nextStopName }) {
+  if (nextElevatorFloor != null) return `Take the elevator to ${floorLabel(nextElevatorFloor)}`;
+  if (nextFireStairs) return fireStairsAction(nextFireStairs);
+  return `Walk to ${nextStopName}`;
 }
 
 // Peek: just the DIRECTIONS / NEAREST EXIT title showing.
@@ -286,16 +297,10 @@ export default function MobileDirectionsSheet({
             )}
             {hasPath && !notStarted && !autoWalking && (
               <Button
-                label={
-                  nextElevatorFloor != null
-                    ? `Take the elevator to ${floorLabel(nextElevatorFloor)}`
-                    : nextFireStairs
-                      ? fireStairsAction(nextFireStairs)
-                      : `Walk to ${nextStopName}`
-                }
+                label={nextStepLabel({ nextElevatorFloor, nextFireStairs, nextStopName })}
                 iconRight="proceedNext"
                 onPress={onWalkNext}
-                style={styles.actionBtn}
+                style={[styles.actionBtn, styles.walkBtn]}
               />
             )}
             {/* The end of the straight hallway ahead in one move (see
@@ -439,4 +444,6 @@ const styles = StyleSheet.create({
   stairsBannerText: { ...typography.caption, color: colors.textOnPrimary, marginTop: 2 },
   arrivedText: { ...typography.body, color: colors.textPrimary, marginTop: spacing.lg },
   actionBtn: { marginTop: spacing.md, alignSelf: "stretch" },
+  // Extra room on the left of the "Walk to ..." label.
+  walkBtn: { paddingLeft: spacing.xl + spacing.sm },
 });

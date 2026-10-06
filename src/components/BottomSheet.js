@@ -56,9 +56,8 @@ import { colors, radii, spacing, shadows } from "../theme";
 //                       frame by frame (slide-in and drags included), so a
 //                       control can ride on top of it.
 //
-// Tapping the top (the handle strip) folds the sheet down to just that
-// strip and a second tap restores it, like web's room panel; dragging it
-// down still closes it, and dragging it up opens it again.
+// Tapping the top (the handle strip) hides the sheet completely, the same
+// as dragging it down past its smallest size (onClose).
 //
 // Motion: the sheet slides up on mount and down on unmount (so switching
 // sheets is a smooth hand-over), and settles
@@ -74,8 +73,6 @@ const FLICK_PROJECTION = 0.12;
 const CLOSE_OVERSHOOT = 56;
 // A touch on the top that moves less than this (px) is a tap, not a drag.
 const TAP_SLOP = 10;
-// snapAt while folded down to the top strip by a tap (not a snap point).
-const FOLDED = -1;
 
 const SLIDE_IN = { duration: 300, easing: Easing.out(Easing.cubic) };
 export const SHEET_EXIT = SlideOutDown.duration(220).easing(Easing.in(Easing.cubic));
@@ -159,7 +156,7 @@ export default function BottomSheet({
   // point at its new height. (Before the slide-in it's set by the effect
   // above instead.)
   useEffect(() => {
-    if (!shown.current || snapAt.value === FOLDED) return; // folded stays folded
+    if (!shown.current) return;
     const index = Math.min(snapAt.value, heights.length - 1);
     height.value = withSpring(heights[index], SETTLE_SPRING);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -171,9 +168,7 @@ export default function BottomSheet({
     })
     .onUpdate((e) => {
       // Dragging up (negative translationY) grows the sheet.
-      // A folded sheet starts below MIN_DRAG_HEIGHT; don't jump it up.
-      const floor = Math.min(MIN_DRAG_HEIGHT, startHeight.value);
-      height.value = Math.min(heights[heights.length - 1], Math.max(floor, startHeight.value - e.translationY));
+      height.value = Math.min(heights[heights.length - 1], Math.max(MIN_DRAG_HEIGHT, startHeight.value - e.translationY));
     })
     .onEnd((e) => {
       const velocity = -e.velocityY; // px/s, positive = growing
@@ -190,26 +185,21 @@ export default function BottomSheet({
       height.value = withSpring(heights[index], { ...SETTLE_SPRING, velocity });
     });
 
-  // A tap on the top (the handle strip) folds the sheet all the way down to
-  // that strip (snapAt FOLDED), and a second tap brings it back up to where
-  // it was, as on web's room panel. Not to the smallest snap point: that
-  // "peek" still shows the title, and on a sheet whose snap points all clamp
-  // to its content (or that has just one) the tap moved nothing. Dragging
-  // still works as before; a touch that moves is a drag, not a tap.
-  const lastOpen = useSharedValue(initialSnap);
+  // A tap on the top (the handle strip) hides the sheet, exactly as a drag
+  // down past the smallest snap point does. It used to fold the sheet to
+  // just that strip, which left an empty white bar on screen. A sheet
+  // without onClose can't be hidden, so it settles at its smallest size.
+  // A touch that moves is a drag, not a tap.
   const tap = Gesture.Tap()
     .maxDistance(TAP_SLOP)
     .onEnd((_e, success) => {
       if (!success) return;
-      if (snapAt.value === FOLDED) {
-        const index = Math.min(lastOpen.value, heights.length - 1);
-        snapAt.value = index;
-        height.value = withSpring(heights[index], SETTLE_SPRING);
-      } else {
-        lastOpen.value = snapAt.value;
-        snapAt.value = FOLDED;
-        height.value = withSpring(handleHeight, SETTLE_SPRING);
+      if (onClose) {
+        runOnJS(onClose)();
+        return;
       }
+      snapAt.value = 0;
+      height.value = withSpring(heights[0], SETTLE_SPRING);
     });
   const topGesture = Gesture.Race(pan, tap);
 
@@ -253,7 +243,7 @@ export default function BottomSheet({
           onLayout={(e) => setHandleHeight(e.nativeEvent.layout.height)}
           accessible
           accessibilityRole="button"
-          accessibilityLabel="Fold or unfold the panel"
+          accessibilityLabel={onClose ? "Close the panel" : "Shrink the panel"}
         >
           <View style={styles.handle} />
         </View>
@@ -277,7 +267,7 @@ const styles = StyleSheet.create({
     ...shadows.floating,
   },
   accentBar: { position: "absolute", top: 0, left: 0, right: 0, height: 3 },
-  // Tall enough to tap comfortably (see the fold tap).
+  // Tall enough to tap comfortably (see the close tap).
   handleArea: { paddingTop: spacing.md, paddingBottom: spacing.md, alignItems: "center" },
   handle: { width: 44, height: 4, borderRadius: radii.pill, backgroundColor: colors.iconButton },
 });

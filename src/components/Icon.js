@@ -50,10 +50,13 @@ const ICONS = {
   showPassword: { font: [FontAwesome6, "eye"] },
   hidePassword: { font: [FontAwesome6, "eye-slash"] },
   server: { font: [FontAwesome6, "server"] },
-  // Also not in the board's set: the AR portal's raise / lower / anchor
-  // buttons (ArPortalControls). Placeholders until the designer draws them.
+  // Also not in the board's set: the AR portal's raise / lower / turn /
+  // anchor buttons (ArPortalControls). Placeholders until the designer draws
+  // them.
   portalUp: { font: [FontAwesome6, "chevron-up"] },
   portalDown: { font: [FontAwesome6, "chevron-down"] },
+  portalTurnLeft: { font: [FontAwesome6, "rotate-left"] },
+  portalTurnRight: { font: [FontAwesome6, "rotate-right"] },
   anchor: { font: [FontAwesome6, "anchor"] },
   recalibrate: { font: [FontAwesome6, "arrows-rotate"] },
 };

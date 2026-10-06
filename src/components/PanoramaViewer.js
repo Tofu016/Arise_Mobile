@@ -20,6 +20,7 @@ import {
   previewScale,
   clampZoom,
   zoomedFov,
+  autoPanToward,
 } from "../utils/panoramaMath";
 import { reportMaxTextureSize } from "../hooks/usePanoramaImage";
 import { useHotspotPreview } from "../hooks/useHotspotPreview";
@@ -30,7 +31,7 @@ import { colors, fontFamily, shadows } from "../theme";
 // components/panorama/Hotspot.jsx and Marker.jsx so they look and behave
 // the same:
 //   - a hotspot is a camera-facing disc + ring + pulsing ring + white
-//     chevron, drawn in the 3D scene; green and larger when it's the
+//     chevron, drawn in the 3D scene; gold, larger and pulsing hard when it's the
 //     route's next stop. As in web's phone/kiosk layout (alwaysShowPreview),
 //     every hotspot in view shows a preview card of where it leads, and one
 //     tap — on the arrow or on its card — walks there.
@@ -59,6 +60,8 @@ function cameraYawFor(lookAtYaw) {
 const HOTSPOT_RENDER_ORDER = 10;
 // Period of the hotspot's outer-ring pulse.
 const RING_PULSE_SECONDS = 2;
+// The route's next stop pulses faster and wider, as web's Hotspot.jsx.
+const HIGHLIGHT_RING_PULSE_SECONDS = 0.7;
 // Gap between the hotspot ring and its preview card, as a share of the original.
 const PREVIEW_GAP_FRACTION = 0.5;
 // Hotspots are drawn this much bigger than web's size for the same screen,
@@ -85,13 +88,16 @@ const ZOOM_EASE = 0.3;
 const MARKER_SIZE_BOOST = 1.25;
 // A tap this close (px) to a tappable marker's dot, or on its label, hits it.
 const MARKER_HIT_SLOP = 16;
+// A touch that moves less than this (px) is a tap, not a drag: the view
+// stays still until it passes it, so a tap's finger jitter doesn't shake it.
+const TAP_SLOP = 10;
 const MARKER_LABEL_HEIGHT = 19; // the label pill (13px text + padding)
 const MARKER_LABEL_GAP = 3;
 
 // 3D materials can't read the theme — these are web's values: the accent
-// maroon, success green for the route's next stop, and white for the arrow.
+// maroon, gold for the route's next stop, and white for the arrow.
 const HOTSPOT_COLOR = "#a12124";
-const HOTSPOT_NEXT_COLOR = "#2e7d46";
+const HOTSPOT_NEXT_COLOR = "#c9a24b";
 const ARROW_COLOR = "#ffffff";
 
 function hotspotGeometry(highlighted) {
@@ -114,7 +120,10 @@ function hotspotGeometry(highlighted) {
 //             what keeps it smooth: readings cross the JS bridge unevenly,
 //             and writing them straight to the view held it still for a
 //             frame and then jumped.
-function CameraRig({ rotationRef, zoomRef, gyroRef, gyroTargetRef, gyroOffsetRef }) {
+//   panTargetRef, panOverriddenRef: directions' auto-pan. The target is
+//             the next stop's { yaw, pitch } (look-at convention) or null;
+//             a drag sets the overridden flag until the target changes.
+function CameraRig({ rotationRef, zoomRef, gyroRef, gyroTargetRef, gyroOffsetRef, panTargetRef, panOverriddenRef }) {
   const { camera } = useThree();
   useFrame((_, delta) => {
     const gyro = gyroRef.current;
@@ -131,6 +140,14 @@ function CameraRig({ rotationRef, zoomRef, gyroRef, gyroTargetRef, gyroOffsetRef
         yaw: gyro.yaw + offset.yaw,
         pitch: Math.max(-89, Math.min(89, gyro.pitch + offset.pitch)),
       };
+    }
+    // Directions: slowly turn to centre the next stop, until the visitor
+    // drags (see panOverriddenRef). In gyro mode the phone does the looking.
+    const panTarget = panTargetRef.current;
+    if (panTarget && !panOverriddenRef.current && !gyro) {
+      const { yaw, pitch } = rotationRef.current;
+      const next = autoPanToward({ yaw: (((-yaw % 360) + 360) % 360), pitch }, panTarget, delta);
+      if (next) rotationRef.current = { yaw: cameraYawFor(next.yaw), pitch: next.pitch };
     }
     const fovTarget = zoomedFov(FOV, zoomRef.current);
     const diff = fovTarget - camera.fov;
@@ -212,6 +229,7 @@ function Hotspot({ hotspot, highlighted, uiScale, hitMapRef }) {
   const { dotRadius, ringArgs } = hotspotGeometry(highlighted);
   const groupRef = useRef();
   const pulseRef = useRef();
+  const dotRef = useRef();
 
   // A wide upside-down "V" (chevron) sized to sit inside the dot, centred
   // vertically. Flat 2D geometry with a constant stroke thickness.
@@ -237,9 +255,14 @@ function Hotspot({ hotspot, highlighted, uiScale, hitMapRef }) {
     // Pulse ring: every RING_PULSE_SECONDS an extra copy of the ring
     // expands outward and fades, then restarts.
     if (pulseRef.current) {
-      const phase = (clock.elapsedTime % RING_PULSE_SECONDS) / RING_PULSE_SECONDS;
-      pulseRef.current.scale.setScalar(1 + phase * 0.6);
-      pulseRef.current.material.opacity = ringOpacity * (1 - phase);
+      const period = highlighted ? HIGHLIGHT_RING_PULSE_SECONDS : RING_PULSE_SECONDS;
+      const phase = (clock.elapsedTime % period) / period;
+      pulseRef.current.scale.setScalar(1 + phase * (highlighted ? 1.8 : 0.6));
+      pulseRef.current.material.opacity = (highlighted ? 1 : ringOpacity) * (1 - phase);
+    }
+    // The highlighted disc throbs in step with the ring.
+    if (dotRef.current && highlighted) {
+      dotRef.current.scale.setScalar(1 + 0.18 * Math.sin((clock.elapsedTime * 2 * Math.PI) / HIGHLIGHT_RING_PULSE_SECONDS));
     }
     // Billboard the whole marker toward the camera so the disc / ring /
     // arrow never turn edge-on as the visitor looks around.
@@ -265,7 +288,7 @@ function Hotspot({ hotspot, highlighted, uiScale, hitMapRef }) {
         <sphereGeometry args={[42, 12, 12]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
-      <mesh renderOrder={HOTSPOT_RENDER_ORDER}>
+      <mesh ref={dotRef} renderOrder={HOTSPOT_RENDER_ORDER}>
         <circleGeometry args={[dotRadius, 40]} />
         <meshBasicMaterial color={color} opacity={dotOpacity} {...flat} />
       </mesh>
@@ -353,7 +376,7 @@ const NONE = [];
 const OFFSCREEN = { transform: [{ translateX: -9999 }, { translateY: -9999 }] };
 
 // The route's next step, when it's a marker (an elevator landing): white
-// ring plus a green halo that breathes, as web's pano-marker-pulse.
+// ring plus a gold halo that breathes, as web's pano-marker-pulse.
 function MarkerPulse({ size }) {
   const t = useSharedValue(0);
   useEffect(() => {
@@ -465,6 +488,7 @@ export default function PanoramaViewer({
   highlightedMarkerId = null,
   previewsHidden = false,
   gyroEnabled = false,
+  autoPan = false,
 }) {
   // A plain ref, not React state — deliberately avoids re-rendering the
   // component tree on every single drag frame. CameraRig above reads this
@@ -480,11 +504,17 @@ export default function PanoramaViewer({
   const gyroTargetRef = useRef(null); // the latest raw reading, which gyroRef eases toward
   const gyroOffsetRef = useRef({ yaw: 0, pitch: 0 });
   const startGyroOffsetRef = useRef({ yaw: 0, pitch: 0 });
+  // Directions auto-pan (web's `autoPan`): the next stop's hotspot, or its
+  // marker when it's an elevator or fire stairs, held in a ref for CameraRig.
+  // A drag hands control back until the target changes (a new stop or spot).
+  const panTargetRef = useRef(null);
+  const panOverriddenRef = useRef(false);
   // Pinch zoom (1 = normal), kept in a ref like the rotation, so a pinch
   // never re-renders anything.
   const zoomRef = useRef(1);
   const pinchRef = useRef(null); // { dist, zoom } while two fingers are down
   const pinchedRef = useRef(false); // this touch pinched, so it isn't a tap
+  const draggingRef = useRef(false); // this touch has moved past TAP_SLOP, so it isn't a tap
   // id -> hit mesh, populated by each Hotspot's own ref callback.
   const hotspotMeshMapRef = useRef(new Map());
   // Populated via Canvas's onCreated — gives access to the live camera/size
@@ -576,6 +606,15 @@ export default function PanoramaViewer({
   // What's drawn over the photo: nothing mid-move (see above).
   const visibleHotspots = moving ? NONE : hotspots;
   const visibleMarkers = moving ? NONE : markers;
+  const panTarget =
+    autoPan && !moving && shown
+      ? visibleHotspots.find((h) => h.id === highlightedId) || visibleMarkers.find((m) => m.id === highlightedMarkerId) || null
+      : null;
+  panTargetRef.current = panTarget ? { yaw: panTarget.yaw, pitch: panTarget.pitch } : null;
+  const panKey = panTarget ? `${sceneKey}:${panTarget.id}` : null;
+  useEffect(() => {
+    panOverriddenRef.current = false;
+  }, [panKey]);
 
   const uiScale = overlayScale(size.width, size.height, FOV) * HOTSPOT_SIZE_BOOST;
   const markerSize = Math.round(48 * markerScale(size.width, size.height) * MARKER_SIZE_BOOST);
@@ -653,6 +692,8 @@ export default function PanoramaViewer({
     const { pageX, pageY } = evt.nativeEvent;
     pinchRef.current = null;
     pinchedRef.current = false;
+    draggingRef.current = false;
+    panOverriddenRef.current = true;
     startDrag(pageX, pageY);
   };
 
@@ -669,10 +710,18 @@ export default function PanoramaViewer({
       // One finger lifted: carry on as a drag from where it is now, rather
       // than jumping to where the first finger started.
       endPinch();
+      draggingRef.current = true;
       if (touches[0]) startDrag(touches[0].pageX, touches[0].pageY);
       return;
     }
     const { pageX, pageY } = evt.nativeEvent;
+    if (!draggingRef.current) {
+      if (Math.hypot(pageX - startTouchRef.current.x, pageY - startTouchRef.current.y) <= TAP_SLOP) return;
+      // Past the slop: the drag starts from here, so the view doesn't jump.
+      draggingRef.current = true;
+      startDrag(pageX, pageY);
+      return;
+    }
     const dx = pageX - startTouchRef.current.x;
     const dy = pageY - startTouchRef.current.y;
     // Zoomed in, a drag turns the view less, so the scene still follows
@@ -704,10 +753,8 @@ export default function PanoramaViewer({
   const handleResponderRelease = (evt) => {
     endPinch();
     if (pinchedRef.current) return; // a pinch, not a tap
-    const { pageX, pageY, locationX, locationY } = evt.nativeEvent;
-    const dx = pageX - startTouchRef.current.x;
-    const dy = pageY - startTouchRef.current.y;
-    if (Math.sqrt(dx * dx + dy * dy) > 10) return; // was a drag, not a tap
+    const { locationX, locationY } = evt.nativeEvent;
+    if (draggingRef.current) return; // was a drag, not a tap
 
     // Markers are drawn over the hotspots, so they're checked first.
     const marker = markerAt(locationX, locationY);
@@ -771,6 +818,8 @@ export default function PanoramaViewer({
           gyroRef={gyroRef}
           gyroTargetRef={gyroTargetRef}
           gyroOffsetRef={gyroOffsetRef}
+          panTargetRef={panTargetRef}
+          panOverriddenRef={panOverriddenRef}
         />
         {shown ? (
           <PanoramaSphere texture={shown.texture} />
@@ -846,7 +895,7 @@ const styles = StyleSheet.create({
   },
   markerLabelHighlighted: { backgroundColor: HOTSPOT_NEXT_COLOR },
   pulseCentre: { position: "absolute", left: "50%", top: "50%" },
-  pulseHalo: { position: "absolute", backgroundColor: "rgba(46,125,70,0.9)" },
+  pulseHalo: { position: "absolute", backgroundColor: "rgba(201,162,75,0.9)" },
   pulseRing: { position: "absolute", backgroundColor: "#fff" },
 
   previewCard: {

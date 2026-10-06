@@ -26,6 +26,7 @@
     "expo-gl": "~57.0.2",
     "expo-image-manipulator": "~57.0.20",
     "expo-linking": "~57.0.11",
+    "expo-navigation-bar": "~57.0.3",
     "expo-router": "~57.0.23",
     "expo-secure-store": "~57.0.4",
     "expo-sensors": "~57.0.3",

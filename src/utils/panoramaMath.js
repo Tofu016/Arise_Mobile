@@ -87,3 +87,34 @@ export function previewScale(lookDot) {
   const t = Math.min(1, angleDeg / PREVIEW_FALLOFF_DEG);
   return PREVIEW_MAX_SCALE + (PREVIEW_MIN_SCALE - PREVIEW_MAX_SCALE) * t;
 }
+
+// Directions auto-pan, ported from web's utils/panoramaMath.js: how far
+// (radians) to turn this frame toward a target `angleRad` away. Eases out
+// (speed follows the remaining angle) between a floor and a ceiling in
+// degrees per second so it stays gentle; a long frame is capped at 0.1s so a
+// hitch can't jump the view. 0 once close enough.
+export const AUTO_PAN_MIN_DEG_PER_SEC = 1.5;
+export const AUTO_PAN_MAX_DEG_PER_SEC = 50;
+export const AUTO_PAN_EASE = 0.9; // share of the remaining angle covered per second
+export const AUTO_PAN_DONE_DEG = 0.2;
+
+export function autoPanStep(angleRad, deltaSeconds) {
+  const angleDeg = (angleRad * 180) / Math.PI;
+  if (angleDeg < AUTO_PAN_DONE_DEG) return 0;
+  const speed = Math.min(AUTO_PAN_MAX_DEG_PER_SEC, Math.max(AUTO_PAN_MIN_DEG_PER_SEC, angleDeg * AUTO_PAN_EASE));
+  return Math.min(angleRad, ((speed * Math.PI) / 180) * Math.min(deltaSeconds, 0.1));
+}
+
+// One frame of the auto-pan as a straight line in yaw/pitch space: yaw takes
+// the short way round, pitch moves linearly, both arrive together. `from` and
+// `to` are { yaw, pitch } in degrees; returns the next { yaw, pitch }, or
+// null once close enough.
+export function autoPanToward(from, to, deltaSeconds) {
+  const dYaw = ((to.yaw - from.yaw + 540) % 360) - 180;
+  const dPitch = to.pitch - from.pitch;
+  const distRad = (Math.hypot(dYaw, dPitch) * Math.PI) / 180;
+  const stepRad = autoPanStep(distRad, deltaSeconds);
+  if (stepRad === 0) return null;
+  const t = stepRad / distRad;
+  return { yaw: (from.yaw + dYaw * t + 360) % 360, pitch: from.pitch + dPitch * t };
+}
